@@ -1,0 +1,104 @@
+{
+  "songs": [
+    {
+      "id": "hot-cross-buns",
+      "title": "Hot Cross Buns",
+      "emoji": "🥯",
+      "key": "A",
+      "beatsPerBar": 4,
+      "tempo": 90,
+      "level": 1,
+      "notes": "A2 A1 A0:2 | A2 A1 A0:2 | A0:0.5 A0:0.5 A0:0.5 A0:0.5 A1:0.5 A1:0.5 A1:0.5 A1:0.5 | A2 A1 A0:2"
+    },
+    {
+      "id": "mary-lamb",
+      "title": "Mary Had a Little Lamb",
+      "emoji": "🐑",
+      "key": "A",
+      "beatsPerBar": 4,
+      "tempo": 96,
+      "level": 1,
+      "notes": "A2 A1 A0 A1 | A2 A2 A2:2 | A1 A1 A1:2 | A2 E0 E0:2 | A2 A1 A0 A1 | A2 A2 A2 A2 | A1 A1 A2 A1 | A0:4"
+    },
+    {
+      "id": "twinkle",
+      "title": "Twinkle Twinkle Little Star",
+      "emoji": "⭐",
+      "key": "A",
+      "beatsPerBar": 4,
+      "tempo": 90,
+      "level": 1,
+      "notes": "A0 A0 E0 E0 | E1 E1 E0:2 | A3 A3 A2 A2 | A1 A1 A0:2 | E0 E0 A3 A3 | A2 A2 A1:2 | E0 E0 A3 A3 | A2 A2 A1:2 | A0 A0 E0 E0 | E1 E1 E0:2 | A3 A3 A2 A2 | A1 A1 A0:2"
+    },
+    {
+      "id": "lightly-row",
+      "title": "Lightly Row",
+      "emoji": "🚣",
+      "key": "A",
+      "beatsPerBar": 4,
+      "tempo": 96,
+      "level": 2,
+      "notes": "E0 A2 A2:2 | A3 A1 A1:2 | A0 A1 A2 A3 | E0 E0 E0:2 | E0 A2 A2:2 | A3 A1 A1:2 | A0 A2 E0 E0 | A2:4 | A1 A1 A1 A1 | A1 A2 A3:2 | A2 A2 A2 A2 | A2 A3 E0:2 | E0 A2 A2:2 | A3 A1 A1:2 | A0 A2 E0 E0 | A0:4"
+    },
+    {
+      "id": "song-of-the-wind",
+      "title": "Song of the Wind",
+      "emoji": "🌬️",
+      "key": "A",
+      "beatsPerBar": 4,
+      "tempo": 100,
+      "level": 2,
+      "notes": "A0 A1 A2 A3 | E0 E0 E0:2 | E1 A3 E3 E1 | E0:4 | E1 A3 E3 E1 | E0:4 | E0 A3 A3 A3 | A3 A2 A2 A2 | A2 A1 A1 A1 | A1 A0 A0:2"
+    },
+    {
+      "id": "jingle-bells",
+      "title": "Jingle Bells (chorus)",
+      "emoji": "🔔",
+      "key": "A",
+      "beatsPerBar": 4,
+      "tempo": 110,
+      "level": 2,
+      "notes": "A2 A2 A2:2 | A2 A2 A2:2 | A2 E0 A0:1.5 A1:0.5 | A2:4 | A3 A3 A3:1.5 A3:0.5 | A3 A2 A2 A2:0.5 A2:0.5 | A2 A1 A1 A2 | A1:2 E0:2 | A2 A2 A2:2 | A2 A2 A2:2 | A2 E0 A0:1.5 A1:0.5 | A2:4 | A3 A3 A3 A3 | A3 A2 A2 A2:0.5 A2:0.5 | E0 E0 A3 A1 | A0:4"
+    },
+    {
+      "id": "go-tell-aunt-rhody",
+      "title": "Go Tell Aunt Rhody",
+      "emoji": "🪿",
+      "key": "D",
+      "beatsPerBar": 4,
+      "tempo": 92,
+      "level": 2,
+      "notes": "D2:2 D2 D1 | D0:2 D0:2 | D1:2 D1 D2 | D0:4 | A0:2 A0 D3 | D2:2 D2:2 | D1 D0 D1 D2 | D0:4"
+    },
+    {
+      "id": "ode-to-joy",
+      "title": "Ode to Joy",
+      "emoji": "🎉",
+      "key": "D",
+      "beatsPerBar": 4,
+      "tempo": 96,
+      "level": 2,
+      "notes": "D2 D2 D3 A0 | A0 D3 D2 D1 | D0 D0 D1 D2 | D2:1.5 D1:0.5 D1:2 | D2 D2 D3 A0 | A0 D3 D2 D1 | D0 D0 D1 D2 | D1:1.5 D0:0.5 D0:2"
+    },
+    {
+      "id": "frere-jacques",
+      "title": "Frère Jacques",
+      "emoji": "😴",
+      "key": "D",
+      "beatsPerBar": 4,
+      "tempo": 100,
+      "level": 3,
+      "notes": "D0 D1 D2 D0 | D0 D1 D2 D0 | D2 D3 A0:2 | D2 D3 A0:2 | A0:0.5 A1:0.5 A0:0.5 D3:0.5 D2 D0 | A0:0.5 A1:0.5 A0:0.5 D3:0.5 D2 D0 | D0 G1 D0:2 | D0 G1 D0:2"
+    },
+    {
+      "id": "old-macdonald",
+      "title": "Old MacDonald Had a Farm",
+      "emoji": "🐄",
+      "key": "D",
+      "beatsPerBar": 4,
+      "tempo": 104,
+      "level": 3,
+      "notes": "D0 D0 D0 G1 | G2 G2 G1:2 | D2 D2 D1 D1 | D0:3 G1 | D0 D0 D0 G1 | G2 G2 G1:2 | D2 D2 D1 D1 | D0:4"
+    }
+  ]
+}

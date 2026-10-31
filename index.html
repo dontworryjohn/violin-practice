@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Violin Practice Pal</title>
+  <meta name="description" content="Beginner violin practice: letter and finger notation, play-along tunes, metronome and practice tracker.">
+  <meta name="theme-color" content="#ff7a45">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎻</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span aria-hidden="true">🎻</span> <span class="brand-name">Violin Practice Pal</span></div>
+    <button id="timerPill" class="timer-pill" type="button">⏱ <span id="timerPillText">Start practice</span></button>
+  </header>
+
+  <nav class="tabs" aria-label="Sections">
+    <button class="tab active" type="button" data-tab="songs"><span class="tab-icon">🎵</span><span>Songs</span></button>
+    <button class="tab" type="button" data-tab="metronome"><span class="tab-icon">🥁</span><span>Metronome</span></button>
+    <button class="tab" type="button" data-tab="tracker"><span class="tab-icon">⭐</span><span>My Practice</span></button>
+    <button class="tab" type="button" data-tab="add"><span class="tab-icon">✏️</span><span>Add Song</span></button>
+  </nav>
+
+  <main>
+    <!-- SONGS -->
+    <section id="tab-songs" class="panel active">
+      <div id="songListView">
+        <h1 class="panel-title">Pick a song 🎶</h1>
+        <div id="songList" class="song-list"></div>
+      </div>
+
+      <div id="songView" hidden>
+        <div class="song-head">
+          <button id="backBtn" class="btn ghost" type="button">← Songs</button>
+          <h1 id="songTitle" class="song-title"></h1>
+          <button id="masterBtn" class="btn star" type="button" aria-pressed="false">☆ I can play it!</button>
+        </div>
+        <div class="song-meta">
+          <span id="songKey" class="chip"></span>
+          <span id="tempoLabel" class="chip"></span>
+          <span class="legend" aria-label="String colours">
+            <span class="legend-item s-G">G</span><span class="legend-item s-D">D</span><span class="legend-item s-A">A</span><span class="legend-item s-E">E</span>
+          </span>
+          <span class="hint">Tap a note to hear it</span>
+        </div>
+        <div id="notation" class="notation"></div>
+
+        <div class="player-bar">
+          <div class="player-row">
+            <button id="playBtn" class="btn big primary" type="button">▶ Play</button>
+            <button id="stopBtn" class="btn big" type="button">⏹ Stop</button>
+            <button id="slowBtn" class="btn big toggle" type="button" aria-pressed="false">🐢 Slow</button>
+            <button id="countBtn" class="btn big toggle" type="button" aria-pressed="true">🔢 Count-in</button>
+          </div>
+          <div class="player-row loop-row">
+            <button id="loopBtn" class="btn toggle" type="button" aria-pressed="false">🔁 Loop</button>
+            <label class="range-pick">Bars
+              <select id="loopFrom" aria-label="From bar"></select>
+              to
+              <select id="loopTo" aria-label="To bar"></select>
+            </label>
+            <button id="loopAllBtn" class="btn ghost" type="button">All bars</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- METRONOME -->
+    <section id="tab-metronome" class="panel">
+      <div id="metroCard" class="card metro">
+        <div id="beatDots" class="beat-dots" aria-hidden="true"></div>
+        <div class="bpm-row">
+          <button id="bpmDown" class="btn round" type="button" aria-label="Slower">−</button>
+          <div class="bpm">
+            <span id="bpmValue">80</span>
+            <small>beats per minute</small>
+            <div id="tempoWord" class="tempo-word"></div>
+          </div>
+          <button id="bpmUp" class="btn round" type="button" aria-label="Faster">+</button>
+        </div>
+        <input id="bpmSlider" class="slider" type="range" min="40" max="160" step="1" value="80" aria-label="Tempo">
+        <div class="metro-options">
+          <div class="seg" id="beatsSeg" role="group" aria-label="Beats per bar">
+            <span class="seg-label">Beats in a bar</span>
+            <button class="btn" type="button" data-beats="2">2</button>
+            <button class="btn" type="button" data-beats="3">3</button>
+            <button class="btn active" type="button" data-beats="4">4</button>
+          </div>
+          <button id="accentBtn" class="btn toggle" type="button" aria-pressed="true">💥 Loud first beat</button>
+        </div>
+        <div class="player-row">
+          <button id="metroStart" class="btn big primary" type="button">▶ Start</button>
+          <button id="tapBtn" class="btn big" type="button">👆 Tap tempo</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PRACTICE TRACKER -->
+    <section id="tab-tracker" class="panel">
+      <div class="tracker-grid">
+        <div class="card timer-card">
+          <div class="ring-wrap">
+            <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+              <circle class="ring-bg" cx="60" cy="60" r="52"></circle>
+              <circle id="ringFg" class="ring-fg" cx="60" cy="60" r="52"></circle>
+            </svg>
+            <div class="ring-text">
+              <div id="bigTimer" class="big-timer">0:00</div>
+              <div id="todayText" class="today-text">0 of 15 min today</div>
+            </div>
+          </div>
+          <button id="timerBtn" class="btn big primary" type="button">▶ Start practice</button>
+          <div class="goal-row">
+            <span>Daily goal</span>
+            <button id="goalDown" class="btn round small" type="button" aria-label="Lower goal">−</button>
+            <strong><span id="goalVal">15</span> min</strong>
+            <button id="goalUp" class="btn round small" type="button" aria-label="Raise goal">+</button>
+          </div>
+        </div>
+
+        <div class="card streak-card">
+          <div class="streak-num"><span aria-hidden="true">🔥</span> <span id="streakNum">0</span></div>
+          <div id="streakText">days in a row</div>
+          <div id="totalsText" class="muted"></div>
+        </div>
+
+        <div class="card calendar-card">
+          <div class="cal-head">
+            <button id="calPrev" class="btn round small" type="button" aria-label="Previous month">‹</button>
+            <h2 id="calTitle"></h2>
+            <button id="calNext" class="btn round small" type="button" aria-label="Next month">›</button>
+          </div>
+          <div id="calendar" class="calendar"></div>
+          <div class="cal-key"><span>🎵 practised</span><span>⭐ goal reached</span></div>
+        </div>
+
+        <div class="card">
+          <h2 id="dayTitle">Today</h2>
+          <div id="dayDetail"></div>
+        </div>
+
+        <div class="card badges-card">
+          <h2>Badges</h2>
+          <div id="badges" class="badges"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ADD A SONG -->
+    <section id="tab-add" class="panel">
+      <div class="add-grid">
+        <form id="songForm" class="card song-form" autocomplete="off">
+          <h1 class="panel-title" id="formTitle">Add my own song</h1>
+          <label>Song name
+            <input id="fTitle" type="text" required maxlength="60" placeholder="e.g. Happy Birthday">
+          </label>
+          <div class="form-row">
+            <label>Picture
+              <input id="fEmoji" type="text" maxlength="4" placeholder="🎵">
+            </label>
+            <label>Key
+              <select id="fKey">
+                <option value="D">D major</option>
+                <option value="A" selected>A major</option>
+                <option value="G">G major</option>
+                <option value="C">C major</option>
+              </select>
+            </label>
+            <label>Beats in a bar
+              <select id="fBeats">
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4" selected>4</option>
+              </select>
+            </label>
+            <label>Speed (BPM)
+              <input id="fTempo" type="number" min="40" max="160" value="90">
+            </label>
+          </div>
+          <label>Notes
+            <textarea id="fNotes" rows="5" spellcheck="false" placeholder="A0 A0 E0 E0 | E1 E1 E0:2 | A3 A3 A2 A2 | A1 A1 A0:2"></textarea>
+          </label>
+          <details class="help" open>
+            <summary>How to type notes</summary>
+            <ul>
+              <li><b>String + finger</b>: <code>A0</code> = open A string, <code>E1</code> = first finger on E.</li>
+              <li><b>Longer notes</b>: add <code>:2</code>, <code>:3</code> or <code>:4</code> beats. Quick notes: <code>:0.5</code>.</li>
+              <li><b>Bar lines</b>: put <code>|</code> between bars (or leave them out and they're added for you).</li>
+              <li><b>Rest</b>: <code>R</code> (or <code>R:2</code> for a 2-beat rest).</li>
+              <li><b>Low/high 2nd finger</b>: chosen from the key; force it with <code>E2L</code> (G) or <code>E2H</code> (G♯).</li>
+            </ul>
+          </details>
+          <div id="formMsg" class="form-msg" role="status"></div>
+          <div class="player-row">
+            <button id="previewBtn" class="btn big" type="button">▶ Listen</button>
+            <button id="saveBtn" class="btn big primary" type="submit">💾 Save song</button>
+            <button id="clearBtn" class="btn ghost" type="button">Clear</button>
+          </div>
+        </form>
+
+        <div class="card preview-card">
+          <h2>Preview</h2>
+          <div id="preview" class="notation small-notation"></div>
+        </div>
+
+        <div class="card">
+          <h2>My songs</h2>
+          <div id="mySongs" class="my-songs"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="countIn" class="count-in" hidden></div>
+  <div id="celebrate" class="celebrate" hidden>
+    <div class="celebrate-box">
+      <div id="celebrateEmoji" class="celebrate-emoji"></div>
+      <div class="celebrate-title">New badge!</div>
+      <div id="celebrateName" class="celebrate-name"></div>
+      <button id="celebrateOk" class="btn big primary" type="button">Yay! 🎉</button>
+    </div>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
