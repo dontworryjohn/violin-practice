@@ -25,4 +25,4 @@ Open http://localhost:8000. Opening `index.html` directly from disk won't load `
 ## Conventions
 - Songs use the letter/finger format documented in the README (`A0 E1:2 | ...`), in first position.
 - Third-party assets need a licence that allows reuse, and a credit (see `sounds/violin/CREDITS.md`).
-- Pull request descriptions follow `.github/pull_request_template.md` (the `pr-description` skill fills it in).
+- Pull request descriptions follow `.github/pull_request_template.md`: what changed, how to test it, and what was tested.

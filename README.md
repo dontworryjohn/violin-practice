@@ -132,8 +132,4 @@ Work on a branch and open a pull request into `main`. Every pull request descrip
 **what changed** and **how to test it**:
 
 - `.github/pull_request_template.md` fills in those sections automatically on GitHub.
-- With Claude Code, the `pr-description` skill (`.claude/skills/pr-description/`) writes the
-  description for you from the actual changes and the checks it ran. Ask "write the PR description"
-  or type `/pr-description` (optionally followed by a pull request number or branch name).
-- The skill is generic and works in any repository. This project's own run and test steps are in
-  [`CLAUDE.md`](CLAUDE.md), which the skill reads first.
+- This project's run and test steps are in [`CLAUDE.md`](CLAUDE.md).
