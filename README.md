@@ -125,3 +125,13 @@ All the built-in tunes are traditional and in the public domain.
 The violin sound uses recordings from the **Fluid R3 GM** SoundFont by Frank Wen, via
 [midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts), licensed under
 [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). See [`sounds/violin/CREDITS.md`](sounds/violin/CREDITS.md).
+
+## Making changes (for developers)
+
+Work on a branch and open a pull request into `main`. Every pull request description should say
+**what changed** and **how to test it**:
+
+- `.github/pull_request_template.md` fills in those sections automatically on GitHub.
+- With Claude Code, the `pr-description` skill (`.claude/skills/pr-description/SKILL.md`) writes the
+  description for you from the actual changes and the checks it ran. Ask "write the PR description"
+  or type `/pr-description`.
