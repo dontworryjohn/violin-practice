@@ -727,6 +727,10 @@ function renderMySongs() {
 
 /* ---------------- Start up ---------------- */
 
+// Browsers only allow sound after the first tap. Use that first tap to load the violin
+// recordings, so they're ready by the time Play is pressed.
+document.addEventListener('pointerdown', () => audio(), { once: true, capture: true });
+
 async function init() {
   setBpm(80);
   renderDots();

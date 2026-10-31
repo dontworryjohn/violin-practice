@@ -1,4 +1,5 @@
-// Web Audio: a warm violin-like voice, a click, the song player and the metronome.
+// Web Audio: violin sound (real recordings, with a synthesised fallback), a click,
+// the song player and the metronome.
 
 let ctx = null;
 let master = null;
@@ -25,6 +26,8 @@ export function audio() {
     reverbSend.gain.value = 0.25;
     reverbSend.connect(conv);
     conv.connect(master);
+
+    decodeViolinSamples();
   }
   if (ctx.state === 'suspended') ctx.resume();
   return ctx;
@@ -53,8 +56,141 @@ function peaking(c, freq, gain, q) {
   return f;
 }
 
-// Plays one bowed note. Returns a handle with stop() so playback can be cut short.
+/* ---------- Real violin recordings ----------
+ * sounds/violin/<midi>.mp3 holds one recorded violin note per semitone, from G3 (55, the open
+ * G string) up to C6 (84). They are fetched as soon as the page loads and decoded once audio
+ * starts. Until they are ready (or if they can't be loaded, e.g. when the page is opened straight
+ * from disk) the synthesised voice below is used instead.
+ */
+const SAMPLE_LOW = 55;
+const SAMPLE_HIGH = 84;
+const SAMPLE_OFFSET = 0.012; // skip the tiny silence at the start of each recording
+const TARGET_RMS = 0.2; // every note is levelled to the same loudness
+const sampleFiles = new Map(); // midi -> Promise<ArrayBuffer>
+const samples = new Map(); // midi -> { buffer, gain, loop }
+
+for (let m = SAMPLE_LOW; m <= SAMPLE_HIGH; m++) {
+  const p = fetch(new URL(`../sounds/violin/${m}.mp3`, import.meta.url))
+    .then((r) => (r.ok ? r.arrayBuffer() : null))
+    .catch(() => null);
+  sampleFiles.set(m, p);
+}
+
+function decodeViolinSamples() {
+  for (const [m, filePromise] of sampleFiles) {
+    filePromise.then(async (data) => {
+      if (!data) return;
+      try {
+        const buffer = await ctx.decodeAudioData(data);
+        samples.set(m, { buffer, gain: levelGain(buffer), loop: null });
+      } catch (e) {
+        /* undecodable file: the synth covers this note */
+      }
+    });
+  }
+}
+
+export function violinSamplesReady() {
+  return samples.size;
+}
+
+function levelGain(buffer) {
+  const d = buffer.getChannelData(0);
+  const from = Math.floor(0.5 * buffer.sampleRate);
+  const to = Math.min(d.length, Math.floor(2 * buffer.sampleRate));
+  let sum = 0;
+  for (let i = from; i < to; i++) sum += d[i] * d[i];
+  const rms = Math.sqrt(sum / Math.max(1, to - from));
+  return rms > 0 ? Math.min(8, TARGET_RMS / rms) : 1;
+}
+
+// For notes longer than the ~3 s recording we loop the steady middle part. To avoid a click,
+// pick the loop end where the waveform best matches the waveform at the loop start.
+function loopPoints(entry) {
+  if (entry.loop) return entry.loop;
+  const { buffer } = entry;
+  const d = buffer.getChannelData(0);
+  const sr = buffer.sampleRate;
+  const start = Math.floor(0.8 * sr);
+  const win = 256;
+  let best = Math.floor(2.4 * sr);
+  let bestErr = Infinity;
+  const hi = Math.min(d.length - win, Math.floor(2.8 * sr));
+  for (let e = Math.floor(2.0 * sr); e < hi; e++) {
+    let err = 0;
+    for (let k = 0; k < win && err < bestErr; k += 2) {
+      const diff = d[start + k] - d[e + k];
+      err += diff * diff;
+    }
+    if (err < bestErr) {
+      bestErr = err;
+      best = e;
+    }
+  }
+  entry.loop = [start / sr, best / sr];
+  return entry.loop;
+}
+
+function nearestSample(midi) {
+  if (samples.has(midi)) return [samples.get(midi), midi];
+  for (let d = 1; d <= 3; d++) {
+    if (samples.has(midi - d)) return [samples.get(midi - d), midi - d];
+    if (samples.has(midi + d)) return [samples.get(midi + d), midi + d];
+  }
+  return [null, null];
+}
+
+// Plays one violin note. Returns a handle with stop() so playback can be cut short.
 export function violinNote(midi, when, duration) {
+  const c = audio();
+  const [entry, sampleMidi] = nearestSample(midi);
+  if (!entry) return synthViolinNote(midi, when, duration);
+
+  const src = c.createBufferSource();
+  src.buffer = entry.buffer;
+  src.playbackRate.value = Math.pow(2, (midi - sampleMidi) / 12);
+  const playable = (entry.buffer.duration - SAMPLE_OFFSET - 0.15) / src.playbackRate.value;
+  if (duration > playable) {
+    const [ls, le] = loopPoints(entry);
+    src.loop = true;
+    src.loopStart = ls;
+    src.loopEnd = le;
+  }
+
+  const endTime = when + Math.max(duration, 0.08);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, when);
+  g.gain.linearRampToValueAtTime(entry.gain, when + 0.02);
+  g.gain.setValueAtTime(entry.gain, endTime);
+  g.gain.setTargetAtTime(0.0001, endTime, 0.07); // the bow lifting off
+  src.connect(g);
+  g.connect(master);
+  g.connect(reverbSend);
+  src.start(when, SAMPLE_OFFSET);
+  src.stop(endTime + 0.5);
+
+  const handle = {
+    onended: null,
+    stop() {
+      const now = c.currentTime;
+      g.gain.cancelScheduledValues(now);
+      g.gain.setTargetAtTime(0.0001, now, 0.02);
+      try {
+        src.stop(now + 0.1);
+      } catch (e) {
+        /* already stopped */
+      }
+    },
+  };
+  src.onended = () => {
+    g.disconnect();
+    if (handle.onended) handle.onended();
+  };
+  return handle;
+}
+
+// Synthesised fallback voice, used only while the recordings are still loading.
+function synthViolinNote(midi, when, duration) {
   const c = audio();
   const freq = midiToFreq(midi);
   const attack = Math.min(0.08, duration * 0.35);
