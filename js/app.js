@@ -1,18 +1,20 @@
 import { parseTune, KEYS } from './notation.js';
 import { SongPlayer, Metronome, violinNote, audio } from './audio.js';
 import { Tracker, BADGES, dateKey } from './tracker.js';
+import { renderSheet } from './sheet.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 const CUSTOM_KEY = 'violinPractice.customSongs.v1';
+const VIEW_KEY = 'violinPractice.view.v1'; // letters or sheet music, remembered per device
 const SLOW_SPEED = 0.6;
 
 const tracker = new Tracker();
 let builtInSongs = [];
 let customSongs = loadCustomSongs();
-let current = null; // { song, parsed, noteEls }
+let current = null; // { song, parsed, noteEls, barEls, sheet, nowIdx }
 let loggedThisPlay = false;
 
 /* ---------------- Helpers ---------------- */
@@ -153,19 +155,105 @@ function renderSongList() {
 
 /* ---------------- Song player ---------------- */
 
+/* ---------------- Letters / sheet music view ---------------- */
+
+function loadView() {
+  try {
+    return { mode: 'letters', fingers: true, ...JSON.parse(localStorage.getItem(VIEW_KEY)) };
+  } catch (e) {
+    return { mode: 'letters', fingers: true };
+  }
+}
+const view = loadView();
+function saveView() {
+  try {
+    localStorage.setItem(VIEW_KEY, JSON.stringify(view));
+  } catch (e) {
+    /* not saved – fine */
+  }
+}
+
+// Keeps the highlighted note visible above the player controls.
+function keepInView(el) {
+  if (!el) return;
+  const r = el.getBoundingClientRect();
+  const barH = $('.player-bar').getBoundingClientRect().height;
+  if (r.top < 90 || r.bottom > window.innerHeight - barH - 10) {
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+}
+
 let lastNow = null;
+// Highlights note `idx` (-1 = none) in whichever view is showing.
+function showNow(idx) {
+  if (!current) return;
+  current.nowIdx = idx;
+  if (lastNow) lastNow.classList.remove('now');
+  lastNow = null;
+  if (view.mode === 'sheet') {
+    keepInView(current.sheet?.setNow(idx));
+    return;
+  }
+  current.sheet?.setNow(-1);
+  lastNow = idx >= 0 ? current.noteEls[idx] : null;
+  if (!lastNow) return;
+  lastNow.classList.add('now');
+  keepInView(lastNow);
+}
+
+function playSingleNote(idx) {
+  const n = current?.parsed.notes[idx];
+  if (n && n.type === 'note') violinNote(n.midi, audio().currentTime + 0.02, 0.9);
+}
+
+function drawSheet() {
+  if (!current) return;
+  const box = $('#sheet');
+  current.sheet = renderSheet(box, current.parsed, current.song, { fingers: view.fingers, onNoteClick: playSingleNote });
+  current.sheetWidth = box.clientWidth;
+}
+
+function applyView() {
+  const sheet = view.mode === 'sheet';
+  $('#viewLetters').setAttribute('aria-pressed', String(!sheet));
+  $('#viewSheet').setAttribute('aria-pressed', String(sheet));
+  $('#fingersBtn').hidden = !sheet;
+  $('#fingersBtn').setAttribute('aria-pressed', String(view.fingers));
+  $('#legend').hidden = sheet && !view.fingers;
+  $('#notation').hidden = sheet;
+  $('#sheet').hidden = !sheet;
+  if (!current) return;
+  if (sheet && (!current.sheet || current.sheetWidth !== $('#sheet').clientWidth)) drawSheet();
+  updateRangeHighlight();
+  showNow(current.nowIdx ?? -1);
+}
+
+function setView(mode) {
+  view.mode = mode;
+  saveView();
+  applyView();
+}
+$('#viewLetters').addEventListener('click', () => setView('letters'));
+$('#viewSheet').addEventListener('click', () => setView('sheet'));
+$('#fingersBtn').addEventListener('click', () => {
+  view.fingers = !view.fingers;
+  saveView();
+  if (current) current.sheet = null; // redraw with or without finger numbers
+  applyView();
+});
+
+// Redraw the sheet music when the screen is rotated or resized, so it fits the new width.
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (current && view.mode === 'sheet' && current.sheetWidth !== $('#sheet').clientWidth) applyView();
+  }, 250);
+});
+
 const player = new SongPlayer({
   onNote(idx) {
-    if (!current) return;
-    if (lastNow) lastNow.classList.remove('now');
-    lastNow = idx >= 0 ? current.noteEls[idx] : null;
-    if (!lastNow) return;
-    lastNow.classList.add('now');
-    const r = lastNow.getBoundingClientRect();
-    const barH = $('.player-bar').getBoundingClientRect().height;
-    if (r.top < 90 || r.bottom > window.innerHeight - barH - 10) {
-      lastNow.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }
+    showNow(idx);
   },
   onCount(n, total) {
     const el = $('#countIn');
@@ -196,6 +284,7 @@ function updateRangeHighlight() {
     el.classList.toggle('out', !whole && (i < from || i > to));
     el.classList.toggle('in-loop', !whole && player.loop && i >= from && i <= to);
   });
+  current.sheet?.setRange(player.startIdx, player.endIdx, whole);
 }
 
 function fillBarSelects(count) {
@@ -211,7 +300,7 @@ function openSong(id) {
   if (!song) return;
   const parsed = parseTune(song.notes, song);
   const { noteEls, barEls } = renderNotation($('#notation'), parsed);
-  current = { song, parsed, noteEls, barEls };
+  current = { song, parsed, noteEls, barEls, sheet: null, nowIdx: -1 };
   lastNow = null;
   player.load(parsed, song);
   fillBarSelects(parsed.bars.length);
@@ -219,10 +308,10 @@ function openSong(id) {
   $('#songKey').textContent = KEYS[song.key] || song.key;
   updateTempoLabel();
   updateMasterBtn();
-  updateRangeHighlight();
   $('#songListView').hidden = true;
   $('#songView').hidden = false;
   showTab('songs');
+  applyView(); // after the song view is visible, so the sheet music knows its width
 }
 
 function closeSong() {
@@ -733,6 +822,7 @@ document.addEventListener('pointerdown', () => audio(), { once: true, capture: t
 
 async function init() {
   setBpm(80);
+  applyView();
   renderDots();
   renderTracker();
   renderMySongs();
