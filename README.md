@@ -9,6 +9,7 @@ It is plain HTML, CSS and JavaScript: no build step and nothing to install. It w
 | Section | What it does |
 | --- | --- |
 | 🎵 **Songs** | 10 traditional beginner tunes in first position (D and A major). Each note shows the note name (e.g. **F♯**) with the string and finger underneath (e.g. **E1**), colour-coded by string. Tap any note to hear it. |
+| 🎼 **Sheet music** | Switch any song between **🔤 Letters** and **🎼 Sheet music** (a treble-clef staff in the song's key). The note being played turns orange with a yellow band that moves along the staff, just like in letters view. Finger numbers (e.g. **E1**) can be shown under the notes in the string colours, or hidden. The choice is remembered on each device. |
 | ▶ **Playback** | Plays the tune with recordings of a real violin (Web Audio API) and highlights the current note. Includes play/pause/stop, 🐢 slow practice (60% speed), a count-in and 🔁 looping a range of bars. |
 | 🥁 **Metronome** | 40–160 BPM with a slider and +/− buttons (hold to change quickly), 2, 3 or 4 beats in a bar, a louder first beat, flashing beat lights and tap tempo. |
 | ⭐ **My Practice** | Start/stop practice timer (also in the top bar), daily goal (15 minutes by default), a calendar of practice days, a streak counter, the songs practised each day, and badges. |
@@ -115,6 +116,8 @@ js/notation.js    reads the letter/finger format and works out the pitches
 js/audio.js       violin sound, song player and metronome (Web Audio API)
 sounds/violin/    one recorded violin note per semitone, G3 to C6 (see CREDITS.md)
 js/tracker.js     practice timer, streaks, calendar data and badges
+js/sheet.js       turns a tune into sheet music and moves the highlight along it
+vendor/abcjs/     abcjs library that draws the sheet music (MIT licence)
 songs.json        the built-in song library
 ```
 
@@ -125,6 +128,9 @@ All the built-in tunes are traditional and in the public domain.
 The violin sound uses recordings from the **Fluid R3 GM** SoundFont by Frank Wen, via
 [midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts), licensed under
 [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). See [`sounds/violin/CREDITS.md`](sounds/violin/CREDITS.md).
+
+Sheet music is drawn with [abcjs](https://github.com/paulrosen/abcjs) 6.4.4 by Paul Rosen and Gregory Dyke,
+included in `vendor/abcjs/` under the MIT licence (see [`vendor/abcjs/LICENSE.md`](vendor/abcjs/LICENSE.md)).
 
 ## Making changes (for developers)
 

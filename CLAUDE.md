@@ -18,8 +18,11 @@ Open http://localhost:8000. Opening `index.html` directly from disk won't load `
   horizontal scrolling. The main use is a tablet on a music stand, read from about 1 metre away.
 - Audio: headless tests can confirm notes are scheduled and recordings load, not how they sound.
   List "how it sounds" under *Not tested automatically*.
-- Saved data lives in `localStorage` under `violinPractice.progress.v1` (practice) and
-  `violinPractice.customSongs.v1` (custom songs). If a change alters their shape, old saved data
+- Songs show in two views, letters (`#notation`) and sheet music (`#sheet`, drawn by `js/sheet.js`
+  with abcjs). A change to playback, highlighting or looping must be tested in both views. Every
+  note in `songs.json` must appear on the staff: `renderSheet(...).count` equals the number of parsed notes.
+- Saved data lives in `localStorage` under `violinPractice.progress.v1` (practice),
+  `violinPractice.customSongs.v1` (custom songs) and `violinPractice.view.v1` (letters/sheet choice). If a change alters their shape, old saved data
   must still load. To reset while testing: F12 → Application → Local storage → Clear.
 
 ## Conventions

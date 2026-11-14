@@ -546,3 +546,28 @@ code { background: #fff; border: 2px solid var(--line); border-radius: 6px; padd
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ---------- Letters / sheet music switch ---------- */
+.view-switch { display: inline-flex; gap: 4px; padding: 4px; background: var(--card); border: 3px solid var(--line); border-radius: 16px; }
+.view-switch .btn { min-height: 48px; border: none; font-size: 1.05rem; }
+.view-switch .btn[aria-pressed='true'] { background: var(--primary); color: #fff; }
+
+/* ---------- Sheet music ---------- */
+.sheet {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  color: var(--ink);
+}
+.sheet .sheet-note { cursor: pointer; }
+.sheet .abcjs-annotation { font-weight: 800; }
+.sheet .sheet-note.s-G .abcjs-annotation { fill: var(--G); }
+.sheet .sheet-note.s-D .abcjs-annotation { fill: var(--D); }
+.sheet .sheet-note.s-A .abcjs-annotation { fill: var(--A); }
+.sheet .sheet-note.s-E .abcjs-annotation { fill: var(--E); }
+.sheet .sheet-band { fill: var(--hl); fill-opacity: 0.75; stroke: #ffc400; stroke-width: 2; }
+.sheet .sheet-now path, .sheet path.sheet-now { fill: var(--primary-dark); stroke: var(--primary-dark); }
+.sheet .sheet-out { opacity: 0.3; }
