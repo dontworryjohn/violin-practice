@@ -159,9 +159,9 @@ function renderSongList() {
 
 function loadView() {
   try {
-    return { mode: 'letters', fingers: true, ...JSON.parse(localStorage.getItem(VIEW_KEY)) };
+    return { mode: 'letters', fingers: true, follow: 'band', ...JSON.parse(localStorage.getItem(VIEW_KEY)) };
   } catch (e) {
-    return { mode: 'letters', fingers: true };
+    return { mode: 'letters', fingers: true, follow: 'band' };
   }
 }
 const view = loadView();
@@ -209,7 +209,11 @@ function playSingleNote(idx) {
 function drawSheet() {
   if (!current) return;
   const box = $('#sheet');
-  current.sheet = renderSheet(box, current.parsed, current.song, { fingers: view.fingers, onNoteClick: playSingleNote });
+  current.sheet = renderSheet(box, current.parsed, current.song, {
+    fingers: view.fingers,
+    style: view.follow,
+    onNoteClick: playSingleNote,
+  });
   current.sheetWidth = box.clientWidth;
 }
 
@@ -219,13 +223,18 @@ function applyView() {
   $('#viewSheet').setAttribute('aria-pressed', String(sheet));
   $('#fingersBtn').hidden = !sheet;
   $('#fingersBtn').setAttribute('aria-pressed', String(view.fingers));
+  $('#followSwitch').hidden = !sheet;
+  $('#followBand').setAttribute('aria-pressed', String(view.follow !== 'baton'));
+  $('#followBaton').setAttribute('aria-pressed', String(view.follow === 'baton'));
   $('#legend').hidden = sheet && !view.fingers;
   $('#notation').hidden = sheet;
   $('#sheet').hidden = !sheet;
   if (!current) return;
   if (sheet && (!current.sheet || current.sheetWidth !== $('#sheet').clientWidth)) drawSheet();
+  current.sheet?.setStyle(view.follow);
   updateRangeHighlight();
   showNow(current.nowIdx ?? -1);
+  startBaton();
 }
 
 function setView(mode) {
@@ -235,6 +244,15 @@ function setView(mode) {
 }
 $('#viewLetters').addEventListener('click', () => setView('letters'));
 $('#viewSheet').addEventListener('click', () => setView('sheet'));
+function setFollow(style) {
+  if (view.follow === style) return;
+  view.follow = style;
+  saveView();
+  if (current) current.sheet = null; // redraw: the baton needs a little more room above each line
+  applyView();
+}
+$('#followBand').addEventListener('click', () => setFollow('band'));
+$('#followBaton').addEventListener('click', () => setFollow('baton'));
 $('#fingersBtn').addEventListener('click', () => {
   view.fingers = !view.fingers;
   saveView();
@@ -251,11 +269,40 @@ window.addEventListener('resize', () => {
   }, 250);
 });
 
+/* Conductor's baton: unlike the band, it moves smoothly between notes, so while a song plays
+   a timer redraws it every frame from how far through the current note (or count-in beat) we are. */
+let beat = null; // { kind: 'note' | 'count', idx, t0, ms, beats }
+let batonFrame = 0;
+const batonActive = () => !!(current?.sheet && view.mode === 'sheet' && view.follow === 'baton' && player.state === 'playing');
+function nextNoteIdx(i) {
+  if (i + 1 <= player.endIdx) return i + 1;
+  return player.loop ? player.startIdx : -1;
+}
+function batonTick() {
+  batonFrame = 0;
+  if (!batonActive() || !beat) return;
+  const elapsed = performance.now() - beat.t0;
+  const frac = Math.min(1, elapsed / beat.ms);
+  if (beat.kind === 'count') current.sheet.batonCount(beat.idx, frac);
+  else current.sheet.batonStep(beat.idx, frac, beat.beats, nextNoteIdx(beat.idx), elapsed);
+  batonFrame = requestAnimationFrame(batonTick);
+}
+function startBaton() {
+  if (!batonFrame && batonActive()) batonFrame = requestAnimationFrame(batonTick);
+}
+
 const player = new SongPlayer({
   onNote(idx) {
     showNow(idx);
+    const n = idx >= 0 ? current?.parsed.notes[idx] : null;
+    beat = n ? { kind: 'note', idx, t0: performance.now(), ms: n.beats * player.secondsPerBeat * 1000, beats: n.beats } : null;
+    startBaton();
   },
   onCount(n, total) {
+    beat = { kind: 'count', idx: player.pos, t0: performance.now(), ms: player.secondsPerBeat * 1000 };
+    // The baton taps the count-in on the first note, so bring that note into view straight away.
+    if (n === 1 && batonActive()) keepInView(current.sheet.noteElement(player.pos));
+    startBaton();
     const el = $('#countIn');
     el.hidden = false;
     el.innerHTML = `<span>${n}</span>`;
@@ -264,6 +311,8 @@ const player = new SongPlayer({
   onState(state) {
     $('#playBtn').textContent = state === 'playing' ? '⏸ Pause' : '▶ Play';
     if (state !== 'playing') $('#countIn').hidden = true;
+    if (state === 'stopped') beat = null;
+    startBaton(); // pause simply stops the timer, leaving the baton where it is
   },
   onEnd() {
     toast('Well played! 👏');
