@@ -29,6 +29,8 @@ Open http://localhost:8000. Opening `index.html` directly from disk won't load `
 
 - Uploads (`js/import.js`): test with a MusicXML file, an `.mxl` (zipped) copy, an ABC file, a PDF and a photo.
   An imported score must fill the Add Song form with no `errors`, and play in both views.
+- Reading PDFs and photos (`js/omr.js`): run the tests in `tests/omr/` (steps in its README) before and after
+  a change, and compare the ✓ count. Don't commit other people's sheet music as test files.
 
 ## Conventions
 - Songs use the letter/finger format documented in the README (`A0 E1:2 | ...`), in first position.

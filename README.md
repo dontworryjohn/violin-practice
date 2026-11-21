@@ -13,7 +13,7 @@ It is plain HTML, CSS and JavaScript: no build step and nothing to install. It w
 | ▶ **Playback** | Plays the tune with recordings of a real violin (Web Audio API) and highlights the current note. Includes play/pause/stop, 🐢 slow practice (60% speed), a count-in and 🔁 looping a range of bars. |
 | 🥁 **Metronome** | 40–160 BPM with a slider and +/− buttons (hold to change quickly), 2, 3 or 4 beats in a bar, a louder first beat, flashing beat lights and tap tempo. |
 | ⭐ **My Practice** | Start/stop practice timer (also in the top bar), daily goal (15 minutes by default), a calendar of practice days, a streak counter, the songs practised each day, and badges. |
-| 📥 **Upload sheet music** | In ✏️ Add Song: upload a **MusicXML** (`.musicxml`, `.mxl`) or **ABC** (`.abc`) file and it is turned into string + finger notes automatically, ready to check, listen to and save. Upload a **PDF or photo** and it is kept on the device and shown under *My sheet music* in Songs, with zoom and a metronome (no playback: the app can't read notes from a picture). |
+| 📥 **Upload sheet music** | In ✏️ Add Song: upload a **PDF or photo** of sheet music, or a **MusicXML** (`.musicxml`, `.mxl`) or **ABC** (`.abc`) file, and it is turned into string + finger notes automatically, ready to check, listen to and save. PDFs and photos are read on the device by the app itself (no AI, no internet, nothing sent anywhere), and the original is kept under *My sheet music* in Songs to read along with, with zoom, a metronome and a **🎼 Read the notes** button. |
 | ✏️ **Add Song** | A form for parents to type new tunes in the same format, with a live preview and a Listen button. |
 
 String colours: **G** purple · **D** blue · **A** green · **E** orange.
@@ -48,11 +48,25 @@ A0 A0 E0 E0 | E1 E1 E0:2 | A3 A3 A2 A2 | A1 A1 A0:2
 ### Option 1: upload the sheet music (no typing)
 
 1. Open **✏️ Add Song** and press **Choose a file** (or drop a file on it).
-2. **MusicXML / ABC:** the notes, key, time and speed are filled in for you. Check the preview, press **▶ Listen**, then **💾 Save song**.
-   Most notation apps and sites can export MusicXML (MuseScore, Flat.io, Noteflight, Sibelius, Finale, Dorico: look for *Export → MusicXML*).
-3. **PDF / photo:** it is saved on this device and appears in **🎵 Songs** under **My sheet music**.
+2. The notes, key, beats in a bar and speed are filled in for you. Check the preview against the sheet,
+   press **▶ Listen**, fix anything wrong, then **💾 Save song**.
+3. **PDF / photo:** the original is also saved on this device, under **🎵 Songs → My sheet music**.
+   Sheets saved there can be read again later with **🎼 Read the notes**.
 
-How notes are converted: every note goes in first position, on the open string where it is one, otherwise on the
+**Which files work best**
+
+| File | How well it reads |
+| --- | --- |
+| MusicXML / ABC | Exact. Most notation apps and sites can export MusicXML (MuseScore, Flat.io, Noteflight, Sibelius, Finale, Dorico: look for *Export → MusicXML*). |
+| PDF made by notation software | Very good for beginner music (single notes, rests, dots, beams, sharps/flats). The app reads it by recognising the shapes on the page (`js/omr.js`). |
+| Clear, straight scan or photo of printed music | Good; an occasional note can be missed. Slightly tilted photos are straightened. |
+| Handwritten music, curled or shadowed pages | Not supported. The sheet is still saved to read along with. |
+
+Not read from pictures: ties, slurs and repeat signs (tied notes show as separate notes), chords (only the
+top note is kept), lyrics and fingering numbers. Clefs other than treble aren't recognised. The time signature
+is worked out from how many beats the bars hold.
+
+How notes become string + finger: every note goes in first position, on the open string where it is one, otherwise on the
 highest string that reaches it (low/high fingers are marked with `L`/`H` when the key's usual finger would be wrong).
 Notes below G3 or above B5 move by an octave. Only the top note of a chord and the first voice of the violin part
 (or the first part) are kept. Repeat signs aren't followed: use 🔁 Loop. Keys other than C, G, D and A major are
@@ -132,9 +146,11 @@ sounds/violin/    one recorded violin note per semitone, G3 to C6 (see CREDITS.m
 js/tracker.js     practice timer, streaks, calendar data and badges
 js/sheet.js       turns a tune into sheet music and moves the highlight along it
 js/import.js      reads uploaded MusicXML / MXL / ABC files into the letter/finger format
+js/omr.js         reads the notes from a PDF or photo of sheet music (no AI or server)
 js/pictures.js    stores uploaded PDFs and photos (IndexedDB) and shows them
 vendor/abcjs/     abcjs library that draws the sheet music (MIT licence)
 vendor/pdfjs/     pdf.js library that shows uploaded PDFs (Apache 2.0 licence)
+tests/omr/        tests for reading sheet music from PDFs and pictures (see its README)
 songs.json        the built-in song library
 ```
 
