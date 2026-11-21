@@ -404,7 +404,8 @@ function verticalRun(img, w, h, x, y) {
 // Number of separate dark runs (beams or flags) in column x between rows ya and yb. Gaps shorter
 // than minGap don't split a run (a blurry beam can have a thin pale streak through it).
 // A run lying on a staff line (a bit of line left behind) doesn't count.
-function runsInColumn(img, w, x, ya, yb, minLen, minGap, lines = []) {
+// With `labels` and `label`, only ink belonging to that shape counts.
+function runsInColumn(img, w, x, ya, yb, minLen, minGap, lines = [], labels = null, label = 0) {
   let runs = 0;
   let len = 0;
   let gap = 0;
@@ -416,7 +417,8 @@ function runsInColumn(img, w, x, ya, yb, minLen, minGap, lines = []) {
     gap = 0;
   };
   for (let y = Math.min(ya, yb); y <= Math.max(ya, yb); y++) {
-    if (img[y * w + x]) {
+    const p = y * w + x;
+    if (img[p] && (!labels || labels[p] === label)) {
       if (!len) start = y;
       if (len && gap) len += gap;
       len++;
@@ -681,6 +683,9 @@ function readPage({ w, h, gray }, texts = []) {
       n.beats = 2;
     } else {
       const { x, dir, tip } = n.stem;
+      // Only ink joined to this stem counts: a slur starting near the stem's end is a separate
+      // curve, not a flag or beam.
+      const stemLabel = labels[Math.round((n.cy + tip) / 2) * w + x];
       let beams = 0;
       for (const side of [-1, 1]) {
         for (const off of [0.35, 0.5, 0.65]) {
@@ -689,7 +694,7 @@ function readPage({ w, h, gray }, texts = []) {
           const ya = Math.round(tip + dir * 0.6 * d); // a little past the tip, as beams slope
           const yb = Math.round(tip - dir * 2.2 * d);
           if (Math.min(ya, yb) < 0 || Math.max(ya, yb) >= h) continue;
-          beams = Math.max(beams, runsInColumn(sym, w, cx, ya, yb, minRun, Math.max(2, Math.round(0.12 * d)), n.staff.lines));
+          beams = Math.max(beams, runsInColumn(sym, w, cx, ya, yb, minRun, Math.max(2, Math.round(0.12 * d)), n.staff.lines, stemLabel ? labels : null, stemLabel));
         }
       }
       n.beats = 1 / 2 ** Math.min(3, beams);
