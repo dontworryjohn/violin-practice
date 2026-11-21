@@ -35,6 +35,33 @@
       <div id="songListView">
         <h1 class="panel-title">Pick a song 🎶</h1>
         <div id="songList" class="song-list"></div>
+        <div id="pictureListWrap" hidden>
+          <h2 class="list-title">📄 My sheet music</h2>
+          <div id="pictureList" class="song-list"></div>
+        </div>
+      </div>
+
+      <div id="pictureView" hidden>
+        <div class="song-head">
+          <button id="pictureBackBtn" class="btn ghost" type="button">← Songs</button>
+          <h1 id="pictureTitle" class="song-title"></h1>
+        </div>
+        <div class="song-meta picture-tools">
+          <span class="view-switch" role="group" aria-label="Size">
+            <button id="zoomOut" class="btn" type="button" aria-label="Smaller">➖</button>
+            <button id="zoomFit" class="btn" type="button">↔ Fit</button>
+            <button id="zoomIn" class="btn" type="button" aria-label="Bigger">➕</button>
+          </span>
+          <span id="picturePages" class="chip"></span>
+          <span class="mini-metro" role="group" aria-label="Metronome">
+            <button id="miniMetroBtn" class="btn toggle" type="button" aria-pressed="false">🥁 Metronome</button>
+            <button id="miniBpmDown" class="btn round small" type="button" aria-label="Slower">−</button>
+            <span class="mini-bpm"><span id="miniBpm">80</span> <small>BPM</small></span>
+            <button id="miniBpmUp" class="btn round small" type="button" aria-label="Faster">+</button>
+          </span>
+        </div>
+        <div id="pictureBox" class="picture-box"></div>
+        <p class="hint picture-hint">💡 Want it to play along and show string + finger numbers? Upload a <b>MusicXML</b> copy instead (most notation apps can export one). See ✏️ Add Song.</p>
       </div>
 
       <div id="songView" hidden>
@@ -168,6 +195,22 @@
     <!-- ADD A SONG -->
     <section id="tab-add" class="panel">
       <div class="add-grid">
+        <div id="uploadCard" class="card upload-card">
+          <h1 class="panel-title">📥 Upload sheet music</h1>
+          <p>Skip the typing: upload the music and the app does the rest.</p>
+          <label id="dropZone" class="drop-zone">
+            <input id="uploadInput" type="file" accept=".musicxml,.xml,.mxl,.abc,.pdf,image/*,application/pdf,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml">
+            <span class="drop-icon" aria-hidden="true">📄</span>
+            <span class="drop-main">Choose a file</span>
+            <span class="drop-sub">or drop it here</span>
+          </label>
+          <ul class="upload-kinds">
+            <li><b>🎼 MusicXML (.musicxml, .mxl) or ABC (.abc)</b>: turned into a song with string + finger numbers, playback and highlighting. You can check it below before saving.</li>
+            <li><b>📄 PDF or photo</b>: shown in the app exactly as printed, with a metronome. The app can't read notes from a picture, so there's no playback.</li>
+          </ul>
+          <div id="uploadMsg" class="form-msg" role="status"></div>
+        </div>
+
         <form id="songForm" class="card song-form" autocomplete="off">
           <h1 class="panel-title" id="formTitle">Add my own song</h1>
           <label>Song name
@@ -225,6 +268,8 @@
         <div class="card">
           <h2>My songs</h2>
           <div id="mySongs" class="my-songs"></div>
+          <h2 class="list-title">My sheet music</h2>
+          <div id="myPictures" class="my-songs"></div>
         </div>
       </div>
     </section>
