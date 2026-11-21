@@ -571,3 +571,9 @@ code { background: #fff; border: 2px solid var(--line); border-radius: 6px; padd
 .sheet .sheet-band { fill: var(--hl); fill-opacity: 0.75; stroke: #ffc400; stroke-width: 2; }
 .sheet .sheet-now path, .sheet path.sheet-now { fill: var(--primary-dark); stroke: var(--primary-dark); }
 .sheet .sheet-out { opacity: 0.3; }
+.view-switch .switch-label { align-self: center; padding: 0 6px 0 8px; font-size: 0.95rem; color: var(--muted); }
+.sheet .sheet-baton { pointer-events: none; }
+.sheet .baton-stick { stroke: var(--ink); stroke-width: 3; stroke-linecap: round; }
+.sheet .baton-grip { stroke: #a0673a; stroke-width: 9; stroke-linecap: round; }
+.sheet .baton-tip { fill: var(--primary); stroke: var(--primary-dark); stroke-width: 2; }
+.sheet .baton-ring { fill: none; stroke: var(--primary); stroke-width: 2.5; }

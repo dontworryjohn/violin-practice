@@ -9,7 +9,7 @@ It is plain HTML, CSS and JavaScript: no build step and nothing to install. It w
 | Section | What it does |
 | --- | --- |
 | 🎵 **Songs** | 10 traditional beginner tunes in first position (D and A major). Each note shows the note name (e.g. **F♯**) with the string and finger underneath (e.g. **E1**), colour-coded by string. Tap any note to hear it. |
-| 🎼 **Sheet music** | Switch any song between **🔤 Letters** and **🎼 Sheet music** (a treble-clef staff in the song's key). The note being played turns orange with a yellow band that moves along the staff, just like in letters view. Finger numbers (e.g. **E1**) can be shown under the notes in the string colours, or hidden. The choice is remembered on each device. |
+| 🎼 **Sheet music** | Switch any song between **🔤 Letters** and **🎼 Sheet music** (a treble-clef staff in the song's key). Choose how to follow the music: a **🟨 yellow band** that jumps to each note (the default, like the letters view), or a **🪄 conductor's baton** that taps each note as it starts and rests on long notes. Finger numbers (e.g. **E1**) can be shown under the notes in the string colours, or hidden. The choice is remembered on each device. |
 | ▶ **Playback** | Plays the tune with recordings of a real violin (Web Audio API) and highlights the current note. Includes play/pause/stop, 🐢 slow practice (60% speed), a count-in and 🔁 looping a range of bars. |
 | 🥁 **Metronome** | 40–160 BPM with a slider and +/− buttons (hold to change quickly), 2, 3 or 4 beats in a bar, a louder first beat, flashing beat lights and tap tempo. |
 | ⭐ **My Practice** | Start/stop practice timer (also in the top bar), daily goal (15 minutes by default), a calendar of practice days, a streak counter, the songs practised each day, and badges. |
