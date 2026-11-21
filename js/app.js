@@ -3,7 +3,7 @@ import { SongPlayer, Metronome, violinNote, audio } from './audio.js';
 import { Tracker, BADGES, dateKey } from './tracker.js';
 import { renderSheet } from './sheet.js';
 import { fileKind, importScoreFile, titleFromFileName } from './import.js';
-import { listPictures, getPicture, addPicture, renamePicture, deletePicture, showPicture } from './pictures.js';
+import { listPictures, getPicture, addPicture, renamePicture, deletePicture, showPicture, fingerprint, findPictureByHash } from './pictures.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -774,8 +774,10 @@ $('#previewBtn').addEventListener('click', () => {
   previewPlayer.play();
 });
 
+let formSource = null; // fingerprint of the uploaded file the form was filled from, if any
 function resetForm() {
   editingId = null;
+  formSource = null;
   $('#songForm').reset();
   $('#formTitle').textContent = 'Add my own song';
   $('#saveBtn').textContent = '💾 Save song';
@@ -800,7 +802,8 @@ $('#songForm').addEventListener('submit', (e) => {
     const i = customSongs.findIndex((x) => x.id === editingId);
     customSongs[i] = { ...customSongs[i], ...s };
   } else {
-    customSongs.push({ id: `my-${Date.now().toString(36)}`, ...s });
+    // Remember which uploaded file a song came from, so uploading it again can offer the saved song.
+    customSongs.push({ id: `my-${Date.now().toString(36)}`, ...s, ...(formSource ? { sourceHash: formSource } : {}) });
   }
   saveCustomSongs();
   toast(`Saved "${s.title}"! Find it in Songs 🎵`);
@@ -1013,9 +1016,10 @@ function uploadMessage(html) {
 }
 
 // Puts an imported or recognised song into the Add Song form, with notes about what changed.
-function fillFormFrom(song, warnings, intro) {
+function fillFormFrom(song, warnings, intro, source = null) {
   showTab('add');
   resetForm();
+  formSource = source;
   $('#fTitle').value = song.title;
   $('#fEmoji').value = song.emoji;
   $('#fKey').value = song.key;
@@ -1032,10 +1036,61 @@ function fillFormFrom(song, warnings, intro) {
 }
 
 // Reads the notes from a PDF or photo (js/omr.js), and fills the form if it worked.
-async function readPictureNotes(file, title) {
+async function readPictureNotes(file, title, hash) {
   const { readSheetMusic } = await import('./omr.js');
   const { song, warnings } = await readSheetMusic(file, title);
-  fillFormFrom(song, warnings, (count) => `Read ${count} notes from the sheet "${esc(title)}".`);
+  fillFormFrom(song, warnings, (count) => `Read ${count} notes from the sheet "${esc(title)}".`, hash);
+}
+
+// The same file (by content, whatever its name) was turned into a song before: offer that song
+// instead of reading it again. `again` reads it anyway.
+let readAgain = null;
+function offerSavedSong(song, note, again) {
+  showTab('add');
+  readAgain = again;
+  uploadMessage(
+    `<div class="ok">✅ You already made a song from this file: <b>${esc(song.emoji || '🎵')} ${esc(song.title)}</b>.</div>` +
+      (note ? `<div class="warn">${note}</div>` : '') +
+      `<div class="player-row upload-actions">
+        <button class="btn primary" type="button" data-upload-act="open" data-id="${esc(song.id)}">▶ Open it</button>
+        <button class="btn" type="button" data-upload-act="again">🎼 Read the notes again</button>
+      </div>`,
+  );
+  $('#uploadCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+$('#uploadMsg').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-upload-act]');
+  if (!btn) return;
+  if (btn.dataset.uploadAct === 'open') openSong(btn.dataset.id);
+  if (btn.dataset.uploadAct === 'again' && readAgain && !uploading) {
+    const again = readAgain;
+    readAgain = null;
+    uploading = true;
+    uploadMessage('<div>⏳ Reading the music…</div>');
+    try {
+      await again();
+    } finally {
+      uploading = false;
+    }
+  }
+});
+
+const readFailedHelp = `<div class="warn">💡 Clear, computer-made sheet music reads best. A MusicXML copy (Export → MusicXML in most notation apps) always works.</div>`;
+
+// Reads a PDF/photo's notes into the form; on failure explains, and says whether the sheet is saved.
+async function readPictureOrExplain(file, saved, extraNote) {
+  try {
+    await readPictureNotes(file, saved?.title || titleFromFileName(file.name), saved?.hash);
+    if (extraNote) $('#uploadMsg').insertAdjacentHTML('beforeend', `<div class="warn">${extraNote}</div>`);
+  } catch (e) {
+    uploadMessage(
+      `<div class="err">⚠️ Couldn't read the notes: ${esc(e.message || 'something went wrong.')}</div>` +
+        (saved
+          ? `<div class="ok">✅ The sheet is saved, so you can still read along with it: 🎵 Songs → <b>My sheet music</b>.</div>`
+          : '<div class="err">⚠️ The file couldn\'t be saved either. Storage may be full.</div>') +
+        readFailedHelp,
+    );
+  }
 }
 
 let uploading = false;
@@ -1047,40 +1102,53 @@ async function handleUpload(file) {
     return;
   }
   uploading = true;
+  readAgain = null;
   uploadMessage('<div>⏳ Reading the music… (a few seconds for a PDF or photo)</div>');
   try {
+    // The same file can come back under another name: recognise it by its contents.
+    const hash = await fingerprint(file);
+    const madeSong = customSongs.find((x) => x.sourceHash === hash);
+
     if (kind === 'picture') {
-      // Keep the original to read from, then try to read its notes.
+      // Keep one copy of the original to read along with.
       let saved = null;
+      let alreadySaved = false;
       try {
-        saved = await addPicture(file);
-        await refreshPictures();
+        saved = await findPictureByHash(hash);
+        alreadySaved = !!saved;
+        if (!saved) {
+          saved = await addPicture(file, hash);
+          await refreshPictures();
+        }
       } catch (e) {
         /* still try to read the notes */
       }
-      const keptNote = saved
-        ? `<div class="warn">📄 The original is saved too: find it in 🎵 Songs under <b>My sheet music</b>.</div>`
-        : '';
-      try {
-        await readPictureNotes(file, saved?.title || titleFromFileName(file.name));
-        $('#uploadMsg').insertAdjacentHTML('beforeend', keptNote);
-      } catch (e) {
-        uploadMessage(
-          `<div class="err">⚠️ Couldn't read the notes: ${esc(e.message || 'something went wrong.')}</div>` +
-            (saved
-              ? `<div class="ok">✅ The sheet is saved, so you can still read along with it: 🎵 Songs → <b>My sheet music</b>.</div>`
-              : '<div class="err">⚠️ The file couldn\'t be saved either. Storage may be full.</div>') +
-            `<div class="warn">💡 Clear, computer-made sheet music reads best. A MusicXML copy (Export → MusicXML in most notation apps) always works.</div>`,
-        );
+      const keptNote = !saved
+        ? ''
+        : alreadySaved
+          ? `📄 This sheet is already saved as "<b>${esc(saved.title)}</b>" in 🎵 Songs → My sheet music, so it wasn't saved twice.`
+          : '📄 The original is saved too: find it in 🎵 Songs under <b>My sheet music</b>.';
+      if (madeSong) {
+        offerSavedSong(madeSong, keptNote, () => readPictureOrExplain(file, saved, keptNote));
+        return;
       }
+      await readPictureOrExplain(file, saved, keptNote);
       return;
     }
-    try {
-      const { song, warnings } = await importScoreFile(file);
-      fillFormFrom(song, warnings, (count) => `Read ${count} notes from "${esc(file.name)}".`);
-    } catch (e) {
-      uploadMessage(`<div class="err">⚠️ ${esc(e.message || "Couldn't read this file.")}</div>`);
+
+    const importIt = async () => {
+      try {
+        const { song, warnings } = await importScoreFile(file);
+        fillFormFrom(song, warnings, (count) => `Read ${count} notes from "${esc(file.name)}".`, hash);
+      } catch (e) {
+        uploadMessage(`<div class="err">⚠️ ${esc(e.message || "Couldn't read this file.")}</div>`);
+      }
+    };
+    if (madeSong) {
+      offerSavedSong(madeSong, '', importIt);
+      return;
     }
+    await importIt();
   } finally {
     uploading = false;
   }
@@ -1091,17 +1159,20 @@ async function readSavedPicture(id) {
   const sheet = await getPicture(id);
   if (!sheet || uploading) return;
   uploading = true;
-  toast('⏳ Reading the notes…');
+  readAgain = null;
   const file = new File([sheet.blob], sheet.type === 'pdf' ? `${sheet.title}.pdf` : sheet.title, { type: sheet.blob.type || (sheet.type === 'pdf' ? 'application/pdf' : 'image/png') });
   try {
     if (pictureShown) closePicture();
-    await readPictureNotes(file, sheet.title);
-  } catch (e) {
+    const hash = sheet.hash || (await fingerprint(sheet.blob));
+    const saved = { id: sheet.id, title: sheet.title, type: sheet.type, added: sheet.added, hash };
+    const madeSong = customSongs.find((x) => x.sourceHash === hash);
+    if (madeSong) {
+      offerSavedSong(madeSong, '', () => readPictureOrExplain(file, saved));
+      return;
+    }
+    toast('⏳ Reading the notes…');
     showTab('add');
-    uploadMessage(
-      `<div class="err">⚠️ Couldn't read the notes from "${esc(sheet.title)}": ${esc(e.message || 'something went wrong.')}</div>` +
-        `<div class="warn">💡 Clear, computer-made sheet music reads best. A MusicXML copy (Export → MusicXML in most notation apps) always works.</div>`,
-    );
+    await readPictureOrExplain(file, saved);
     $('#uploadCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } finally {
     uploading = false;
