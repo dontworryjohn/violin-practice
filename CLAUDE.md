@@ -24,7 +24,9 @@ Open http://localhost:8000. Opening `index.html` directly from disk won't load `
   note in `songs.json` must appear on the staff: `renderSheet(...).count` equals the number of parsed notes.
 - Saved data lives in `localStorage` under `violinPractice.progress.v1` (practice),
   `violinPractice.customSongs.v1` (custom songs) and `violinPractice.view.v1` (letters/sheet, finger numbers, band/baton).
-  Uploaded PDFs and photos live in IndexedDB, database `violinPractice.sheets`, store `sheets`. If a change alters their shape, old saved data
+  Uploaded PDFs and photos live in IndexedDB, database `violinPractice.sheets`, store `sheets`, each with a
+  content fingerprint `hash` (added on demand to sheets saved without one). Custom songs made from an upload
+  carry the file's fingerprint as `sourceHash`, used to spot the same file uploaded again under another name. If a change alters their shape, old saved data
   must still load. To reset while testing: F12 → Application → Local storage → Clear.
 
 - Uploads (`js/import.js`): test with a MusicXML file, an `.mxl` (zipped) copy, an ABC file, a PDF and a photo.

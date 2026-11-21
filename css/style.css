@@ -623,3 +623,4 @@ code { background: #fff; border: 2px solid var(--line); border-radius: 6px; padd
 }
 .picture-box:has(.picture-page) { padding-bottom: 4px; }
 .picture-hint { margin-top: 1rem; }
+.upload-actions { margin-top: 10px; }

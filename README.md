@@ -52,6 +52,9 @@ A0 A0 E0 E0 | E1 E1 E0:2 | A3 A3 A2 A2 | A1 A1 A0:2
    press **▶ Listen**, fix anything wrong, then **💾 Save song**.
 3. **PDF / photo:** the original is also saved on this device, under **🎵 Songs → My sheet music**.
    Sheets saved there can be read again later with **🎼 Read the notes**.
+4. **Uploading the same file again**, even under another name, doesn't make a second copy: the app
+   recognises the file by its contents. If you already saved a song from it, you get **▶ Open it**
+   (or **🎼 Read the notes again** if you want a fresh read).
 
 **Which files work best**
 

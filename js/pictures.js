@@ -37,17 +37,45 @@ async function tx(mode, fn) {
   });
 }
 
-// Titles and dates only (no file data), oldest first.
+// A short fingerprint of a file's contents, so the same file is recognised under any name.
+// (A fast 53-bit hash plus the size: works without HTTPS, unlike crypto.subtle.)
+export async function fingerprint(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < bytes.length; i++) {
+    h1 = Math.imul(h1 ^ bytes[i], 2654435761);
+    h2 = Math.imul(h2 ^ bytes[i], 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return `${bytes.length.toString(36)}-${(4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36)}`;
+}
+
+// Titles, dates and fingerprints only (no file data), oldest first.
 export async function listPictures() {
   const all = await tx('readonly', (s) => s.getAll());
-  return all.map(({ id, title, type, added }) => ({ id, title, type, added })).sort((a, b) => a.added - b.added);
+  return all.map(({ id, title, type, added, hash }) => ({ id, title, type, added, hash })).sort((a, b) => a.added - b.added);
+}
+
+// The saved sheet with this fingerprint, if any. Sheets saved before fingerprints existed get one now.
+export async function findPictureByHash(hash) {
+  const all = await tx('readonly', (s) => s.getAll());
+  for (const sheet of all) {
+    if (!sheet.hash) {
+      sheet.hash = await fingerprint(sheet.blob);
+      await tx('readwrite', (s) => s.put(sheet));
+    }
+  }
+  const found = all.find((sheet) => sheet.hash === hash);
+  return found ? { id: found.id, title: found.title, type: found.type, added: found.added, hash: found.hash } : null;
 }
 
 export async function getPicture(id) {
   return tx('readonly', (s) => s.get(id));
 }
 
-export async function addPicture(file) {
+export async function addPicture(file, hash) {
   if (file.size > MAX_BYTES) throw new Error('That file is bigger than 30 MB. Try a smaller photo or PDF.');
   const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
   const sheet = {
@@ -56,9 +84,10 @@ export async function addPicture(file) {
     type: isPdf ? 'pdf' : 'image',
     blob: file,
     added: Date.now(),
+    hash: hash || (await fingerprint(file)),
   };
   await tx('readwrite', (s) => s.put(sheet));
-  return { id: sheet.id, title: sheet.title, type: sheet.type, added: sheet.added };
+  return { id: sheet.id, title: sheet.title, type: sheet.type, added: sheet.added, hash: sheet.hash };
 }
 
 export async function renamePicture(id, title) {
