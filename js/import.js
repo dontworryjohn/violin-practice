@@ -68,7 +68,7 @@ function closestKey(fifths) {
 }
 
 // bars: [[{ midi | null (rest), beats }]] -> song fields and a list of things worth knowing.
-function buildSong({ title, fifths = 0, beatsPerBar = 4, tempo, bars, notes: extra = [] }) {
+export function buildSong({ title, fifths = 0, beatsPerBar = 4, tempo, bars, notes: extra = [] }) {
   const warnings = [...extra];
   const key = closestKey(fifths);
   if (KEY_BY_FIFTHS[fifths] === undefined) {

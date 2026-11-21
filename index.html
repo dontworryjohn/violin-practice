@@ -52,6 +52,7 @@
             <button id="zoomFit" class="btn" type="button">↔ Fit</button>
             <button id="zoomIn" class="btn" type="button" aria-label="Bigger">➕</button>
           </span>
+          <button id="readNotesBtn" class="btn primary" type="button">🎼 Read the notes</button>
           <span id="picturePages" class="chip"></span>
           <span class="mini-metro" role="group" aria-label="Metronome">
             <button id="miniMetroBtn" class="btn toggle" type="button" aria-pressed="false">🥁 Metronome</button>
@@ -61,7 +62,7 @@
           </span>
         </div>
         <div id="pictureBox" class="picture-box"></div>
-        <p class="hint picture-hint">💡 Want it to play along and show string + finger numbers? Upload a <b>MusicXML</b> copy instead (most notation apps can export one). See ✏️ Add Song.</p>
+        <p class="hint picture-hint">💡 Press <b>🎼 Read the notes</b> to turn this sheet into a song that plays along and shows string + finger numbers. You can check and fix the notes before saving.</p>
       </div>
 
       <div id="songView" hidden>
@@ -206,7 +207,7 @@
           </label>
           <ul class="upload-kinds">
             <li><b>🎼 MusicXML (.musicxml, .mxl) or ABC (.abc)</b>: turned into a song with string + finger numbers, playback and highlighting. You can check it below before saving.</li>
-            <li><b>📄 PDF or photo</b>: shown in the app exactly as printed, with a metronome. The app can't read notes from a picture, so there's no playback.</li>
+            <li><b>📄 PDF or photo</b>: the app reads the notes from the page, and keeps the original to read along with. Clear, computer-made sheet music reads best; always check the notes before saving.</li>
           </ul>
           <div id="uploadMsg" class="form-msg" role="status"></div>
         </div>

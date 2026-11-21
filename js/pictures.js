@@ -75,8 +75,9 @@ export async function deletePicture(id) {
 /* ---------------- Showing a sheet ---------------- */
 
 const PDFJS_BASE = new URL('../vendor/pdfjs/', import.meta.url);
+export const PDF_FONTS_URL = new URL('standard_fonts/', PDFJS_BASE).href;
 let pdfjs = null;
-async function loadPdfJs() {
+export async function loadPdfJs() {
   if (!pdfjs) {
     pdfjs = await import(new URL('pdf.min.mjs', PDFJS_BASE).href);
     pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdf.worker.min.mjs', PDFJS_BASE).href;
@@ -95,7 +96,7 @@ export async function showPicture(container, sheet) {
 
   if (sheet.type === 'pdf') {
     const lib = await loadPdfJs();
-    pdf = await lib.getDocument({ data: new Uint8Array(await sheet.blob.arrayBuffer()), standardFontDataUrl: new URL('standard_fonts/', PDFJS_BASE).href }).promise;
+    pdf = await lib.getDocument({ data: new Uint8Array(await sheet.blob.arrayBuffer()), standardFontDataUrl: PDF_FONTS_URL }).promise;
     for (let i = 1; i <= pdf.numPages; i++) {
       const canvas = document.createElement('canvas');
       canvas.className = 'picture-page';

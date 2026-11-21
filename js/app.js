@@ -2,7 +2,7 @@ import { parseTune, KEYS } from './notation.js';
 import { SongPlayer, Metronome, violinNote, audio } from './audio.js';
 import { Tracker, BADGES, dateKey } from './tracker.js';
 import { renderSheet } from './sheet.js';
-import { fileKind, importScoreFile } from './import.js';
+import { fileKind, importScoreFile, titleFromFileName } from './import.js';
 import { listPictures, getPicture, addPicture, renamePicture, deletePicture, showPicture } from './pictures.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -901,6 +901,7 @@ function renderMyPictures() {
       (p) => `<div class="my-song" data-id="${esc(p.id)}">
         <span class="name">${picIcon(p)} ${esc(p.title)}</span>
         <button class="btn" type="button" data-act="open">👀 Open</button>
+        <button class="btn" type="button" data-act="read">🎼 Read the notes</button>
         <button class="btn" type="button" data-act="rename">✏️ Rename</button>
         <button class="btn" type="button" data-act="delete" aria-label="Delete ${esc(p.title)}">🗑️</button>
       </div>`,
@@ -912,6 +913,7 @@ function renderMyPictures() {
       btn.addEventListener('click', async () => {
         const act = btn.dataset.act;
         if (act === 'open') openPicture(p.id);
+        if (act === 'read') readSavedPicture(p.id);
         if (act === 'rename') {
           const title = window.prompt('New name for this sheet music:', p.title);
           if (title && title.trim()) {
@@ -1010,48 +1012,102 @@ function uploadMessage(html) {
   $('#uploadMsg').innerHTML = html;
 }
 
+// Puts an imported or recognised song into the Add Song form, with notes about what changed.
+function fillFormFrom(song, warnings, intro) {
+  showTab('add');
+  resetForm();
+  $('#fTitle').value = song.title;
+  $('#fEmoji').value = song.emoji;
+  $('#fKey').value = song.key;
+  $('#fBeats').value = song.beatsPerBar;
+  $('#fTempo').value = song.tempo;
+  $('#fNotes').value = song.notes;
+  updatePreview();
+  const count = previewParsed ? previewParsed.notes.filter((n) => n.type === 'note').length : 0;
+  uploadMessage(
+    `<div class="ok">✅ ${intro(count)} Check them in the form below, press ▶ Listen, then 💾 Save song.</div>` +
+      warnings.map((w) => `<div class="warn">💡 ${esc(w)}</div>`).join(''),
+  );
+  $('#songForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Reads the notes from a PDF or photo (js/omr.js), and fills the form if it worked.
+async function readPictureNotes(file, title) {
+  const { readSheetMusic } = await import('./omr.js');
+  const { song, warnings } = await readSheetMusic(file, title);
+  fillFormFrom(song, warnings, (count) => `Read ${count} notes from the sheet "${esc(title)}".`);
+}
+
+let uploading = false;
 async function handleUpload(file) {
-  if (!file) return;
+  if (!file || uploading) return;
   const kind = fileKind(file.name) || (file.type.startsWith('image/') || file.type === 'application/pdf' ? 'picture' : null);
   if (!kind) {
     uploadMessage(`<div class="err">⚠️ "${esc(file.name)}" isn't a file I can use. Upload MusicXML (.musicxml, .mxl), ABC (.abc), a PDF or a photo.</div>`);
     return;
   }
-  uploadMessage('<div>⏳ Reading the music…</div>');
-  if (kind === 'picture') {
-    try {
-      const p = await addPicture(file);
-      await refreshPictures();
-      uploadMessage(
-        `<div class="ok">✅ Saved "${esc(p.title)}". Find it in 🎵 Songs under <b>My sheet music</b>.</div>
-         <div class="warn">💡 PDFs and photos are shown as pictures, so there's no playback or finger numbers. For those, upload a MusicXML copy (in most notation apps: Export → MusicXML).</div>`,
-      );
-      toast(`Saved "${p.title}" 📄`);
-    } catch (e) {
-      uploadMessage(`<div class="err">⚠️ Couldn't save this file. ${esc(e.message || 'Storage may be full.')}</div>`);
-    }
-    return;
-  }
+  uploading = true;
+  uploadMessage('<div>⏳ Reading the music… (a few seconds for a PDF or photo)</div>');
   try {
-    const { song, warnings } = await importScoreFile(file);
-    resetForm();
-    $('#fTitle').value = song.title;
-    $('#fEmoji').value = song.emoji;
-    $('#fKey').value = song.key;
-    $('#fBeats').value = song.beatsPerBar;
-    $('#fTempo').value = song.tempo;
-    $('#fNotes').value = song.notes;
-    updatePreview();
-    const count = previewParsed ? previewParsed.notes.filter((n) => n.type === 'note').length : 0;
-    uploadMessage(
-      `<div class="ok">✅ Read ${count} notes from "${esc(file.name)}". Check them in the form below, press ▶ Listen, then 💾 Save song.</div>` +
-        warnings.map((w) => `<div class="warn">💡 ${esc(w)}</div>`).join(''),
-    );
-    $('#songForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  } catch (e) {
-    uploadMessage(`<div class="err">⚠️ ${esc(e.message || "Couldn't read this file.")}</div>`);
+    if (kind === 'picture') {
+      // Keep the original to read from, then try to read its notes.
+      let saved = null;
+      try {
+        saved = await addPicture(file);
+        await refreshPictures();
+      } catch (e) {
+        /* still try to read the notes */
+      }
+      const keptNote = saved
+        ? `<div class="warn">📄 The original is saved too: find it in 🎵 Songs under <b>My sheet music</b>.</div>`
+        : '';
+      try {
+        await readPictureNotes(file, saved?.title || titleFromFileName(file.name));
+        $('#uploadMsg').insertAdjacentHTML('beforeend', keptNote);
+      } catch (e) {
+        uploadMessage(
+          `<div class="err">⚠️ Couldn't read the notes: ${esc(e.message || 'something went wrong.')}</div>` +
+            (saved
+              ? `<div class="ok">✅ The sheet is saved, so you can still read along with it: 🎵 Songs → <b>My sheet music</b>.</div>`
+              : '<div class="err">⚠️ The file couldn\'t be saved either. Storage may be full.</div>') +
+            `<div class="warn">💡 Clear, computer-made sheet music reads best. A MusicXML copy (Export → MusicXML in most notation apps) always works.</div>`,
+        );
+      }
+      return;
+    }
+    try {
+      const { song, warnings } = await importScoreFile(file);
+      fillFormFrom(song, warnings, (count) => `Read ${count} notes from "${esc(file.name)}".`);
+    } catch (e) {
+      uploadMessage(`<div class="err">⚠️ ${esc(e.message || "Couldn't read this file.")}</div>`);
+    }
+  } finally {
+    uploading = false;
   }
 }
+
+// "Read the notes" on a sheet that was saved earlier.
+async function readSavedPicture(id) {
+  const sheet = await getPicture(id);
+  if (!sheet || uploading) return;
+  uploading = true;
+  toast('⏳ Reading the notes…');
+  const file = new File([sheet.blob], sheet.type === 'pdf' ? `${sheet.title}.pdf` : sheet.title, { type: sheet.blob.type || (sheet.type === 'pdf' ? 'application/pdf' : 'image/png') });
+  try {
+    if (pictureShown) closePicture();
+    await readPictureNotes(file, sheet.title);
+  } catch (e) {
+    showTab('add');
+    uploadMessage(
+      `<div class="err">⚠️ Couldn't read the notes from "${esc(sheet.title)}": ${esc(e.message || 'something went wrong.')}</div>` +
+        `<div class="warn">💡 Clear, computer-made sheet music reads best. A MusicXML copy (Export → MusicXML in most notation apps) always works.</div>`,
+    );
+    $('#uploadCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } finally {
+    uploading = false;
+  }
+}
+$('#readNotesBtn').addEventListener('click', () => pictureShown && readSavedPicture(pictureShown.id));
 
 $('#uploadInput').addEventListener('change', (e) => {
   handleUpload(e.target.files[0]);
