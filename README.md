@@ -13,6 +13,7 @@ It is plain HTML, CSS and JavaScript: no build step and nothing to install. It w
 | ▶ **Playback** | Plays the tune with recordings of a real violin (Web Audio API) and highlights the current note. Includes play/pause/stop, 🐢 slow practice (60% speed), a count-in and 🔁 looping a range of bars. |
 | 🥁 **Metronome** | 40–160 BPM with a slider and +/− buttons (hold to change quickly), 2, 3 or 4 beats in a bar, a louder first beat, flashing beat lights and tap tempo. |
 | ⭐ **My Practice** | Start/stop practice timer (also in the top bar), daily goal (15 minutes by default), a calendar of practice days, a streak counter, the songs practised each day, and badges. |
+| 📥 **Upload sheet music** | In ✏️ Add Song: upload a **MusicXML** (`.musicxml`, `.mxl`) or **ABC** (`.abc`) file and it is turned into string + finger notes automatically, ready to check, listen to and save. Upload a **PDF or photo** and it is kept on the device and shown under *My sheet music* in Songs, with zoom and a metronome (no playback: the app can't read notes from a picture). |
 | ✏️ **Add Song** | A form for parents to type new tunes in the same format, with a live preview and a Listen button. |
 
 String colours: **G** purple · **D** blue · **A** green · **E** orange.
@@ -44,7 +45,20 @@ A0 A0 E0 E0 | E1 E1 E0:2 | A3 A3 A2 A2 | A1 A1 A0:2
 
 ## Adding songs
 
-### Option 1: in the app (quickest)
+### Option 1: upload the sheet music (no typing)
+
+1. Open **✏️ Add Song** and press **Choose a file** (or drop a file on it).
+2. **MusicXML / ABC:** the notes, key, time and speed are filled in for you. Check the preview, press **▶ Listen**, then **💾 Save song**.
+   Most notation apps and sites can export MusicXML (MuseScore, Flat.io, Noteflight, Sibelius, Finale, Dorico: look for *Export → MusicXML*).
+3. **PDF / photo:** it is saved on this device and appears in **🎵 Songs** under **My sheet music**.
+
+How notes are converted: every note goes in first position, on the open string where it is one, otherwise on the
+highest string that reaches it (low/high fingers are marked with `L`/`H` when the key's usual finger would be wrong).
+Notes below G3 or above B5 move by an octave. Only the top note of a chord and the first voice of the violin part
+(or the first part) are kept. Repeat signs aren't followed: use 🔁 Loop. Keys other than C, G, D and A major are
+shown in the nearest of those, with the right pitches. The upload panel lists anything that was changed.
+
+### Option 2: type it in the app
 
 1. Open **✏️ Add Song**.
 2. Type a name and the notes. The preview shows any mistakes straight away.
@@ -52,7 +66,7 @@ A0 A0 E0 E0 | E1 E1 E0:2 | A3 A3 A2 A2 | A1 A1 A0:2
 
 Songs saved this way are stored on that device only.
 
-### Option 2: in `songs.json` (permanent, shows on every device)
+### Option 3: in `songs.json` (permanent, shows on every device)
 
 Add an entry to the `songs` list in [`songs.json`](songs.json):
 
@@ -117,7 +131,10 @@ js/audio.js       violin sound, song player and metronome (Web Audio API)
 sounds/violin/    one recorded violin note per semitone, G3 to C6 (see CREDITS.md)
 js/tracker.js     practice timer, streaks, calendar data and badges
 js/sheet.js       turns a tune into sheet music and moves the highlight along it
+js/import.js      reads uploaded MusicXML / MXL / ABC files into the letter/finger format
+js/pictures.js    stores uploaded PDFs and photos (IndexedDB) and shows them
 vendor/abcjs/     abcjs library that draws the sheet music (MIT licence)
+vendor/pdfjs/     pdf.js library that shows uploaded PDFs (Apache 2.0 licence)
 songs.json        the built-in song library
 ```
 
@@ -131,6 +148,9 @@ The violin sound uses recordings from the **Fluid R3 GM** SoundFont by Frank Wen
 
 Sheet music is drawn with [abcjs](https://github.com/paulrosen/abcjs) 6.4.4 by Paul Rosen and Gregory Dyke,
 included in `vendor/abcjs/` under the MIT licence (see [`vendor/abcjs/LICENSE.md`](vendor/abcjs/LICENSE.md)).
+
+Uploaded PDFs are shown with [pdf.js](https://github.com/mozilla/pdf.js) 4.10.38 (legacy build) by Mozilla,
+included in `vendor/pdfjs/` under the Apache 2.0 licence (see [`vendor/pdfjs/LICENSE`](vendor/pdfjs/LICENSE)).
 
 ## Making changes (for developers)
 

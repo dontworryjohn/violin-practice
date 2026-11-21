@@ -577,3 +577,49 @@ code { background: #fff; border: 2px solid var(--line); border-radius: 6px; padd
 .sheet .baton-grip { stroke: #a0673a; stroke-width: 9; stroke-linecap: round; }
 .sheet .baton-tip { fill: var(--primary); stroke: var(--primary-dark); stroke-width: 2; }
 .sheet .baton-ring { fill: none; stroke: var(--primary); stroke-width: 2.5; }
+
+/* ---------- Uploaded sheet music ---------- */
+.list-title { margin-top: 1.6rem; }
+.upload-card { grid-column: 1 / -1; }
+.upload-card p { margin: 0 0 0.8rem; }
+.drop-zone {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 22px 16px;
+  border: 3px dashed var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  cursor: pointer;
+  text-align: center;
+}
+.drop-zone:hover, .drop-zone.over { border-color: var(--primary); }
+.drop-zone:focus-within { outline: 4px solid var(--accent); outline-offset: 2px; }
+.drop-zone input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.drop-icon { font-size: 2.6rem; }
+.drop-main { font-size: 1.3rem; font-weight: 900; color: var(--primary-dark); }
+.drop-sub { color: var(--muted); font-size: 0.95rem; }
+.upload-kinds { margin: 0.9rem 0 0.6rem; padding-left: 1.2rem; display: grid; gap: 6px; font-size: 1rem; }
+.form-msg > div + div { margin-top: 4px; }
+
+.picture-tools { align-items: center; }
+.mini-metro { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mini-bpm { font-size: 1.3rem; font-weight: 900; min-width: 4.5ch; text-align: center; font-variant-numeric: tabular-nums; }
+.mini-bpm small { font-size: 0.75rem; color: var(--muted); }
+.picture-box {
+  overflow-x: auto;
+  display: grid;
+  gap: 14px;
+  justify-items: start;
+}
+.picture-page {
+  display: block;
+  width: calc(100% * var(--zoom, 1));
+  max-width: none;
+  height: auto;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.picture-box:has(.picture-page) { padding-bottom: 4px; }
+.picture-hint { margin-top: 1rem; }

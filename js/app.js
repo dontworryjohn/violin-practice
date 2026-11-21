@@ -2,6 +2,8 @@ import { parseTune, KEYS } from './notation.js';
 import { SongPlayer, Metronome, violinNote, audio } from './audio.js';
 import { Tracker, BADGES, dateKey } from './tracker.js';
 import { renderSheet } from './sheet.js';
+import { fileKind, importScoreFile } from './import.js';
+import { listPictures, getPicture, addPicture, renamePicture, deletePicture, showPicture } from './pictures.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -16,6 +18,8 @@ let builtInSongs = [];
 let customSongs = loadCustomSongs();
 let current = null; // { song, parsed, noteEls, barEls, sheet, nowIdx }
 let loggedThisPlay = false;
+let pictures = []; // uploaded PDFs and photos: { id, title, type, added }
+let pictureShown = null; // { id, viewer, zoom }
 
 /* ---------------- Helpers ---------------- */
 
@@ -357,6 +361,7 @@ function openSong(id) {
   $('#songKey').textContent = KEYS[song.key] || song.key;
   updateTempoLabel();
   updateMasterBtn();
+  closePicture(false);
   $('#songListView').hidden = true;
   $('#songView').hidden = false;
   showTab('songs');
@@ -476,6 +481,17 @@ function setBpm(v) {
   $('#bpmValue').textContent = bpm;
   $('#bpmSlider').value = bpm;
   $('#tempoWord').textContent = TEMPO_WORDS.find(([max]) => bpm < max)[1];
+  $('#miniBpm').textContent = bpm;
+}
+
+function setMetroRunning(on) {
+  if (on && !metro.running) metro.start();
+  if (!on && metro.running) {
+    metro.stop();
+    $$('.dot').forEach((d) => d.classList.remove('on'));
+  }
+  $('#metroStart').textContent = metro.running ? '⏹ Stop' : '▶ Start';
+  $('#miniMetroBtn').setAttribute('aria-pressed', String(metro.running));
 }
 
 $('#bpmSlider').addEventListener('input', (e) => setBpm(Number(e.target.value)));
@@ -517,15 +533,7 @@ $('#accentBtn').addEventListener('click', (e) => {
   renderDots();
 });
 
-$('#metroStart').addEventListener('click', () => {
-  if (metro.running) {
-    metro.stop();
-    $$('.dot').forEach((d) => d.classList.remove('on'));
-  } else {
-    metro.start();
-  }
-  $('#metroStart').textContent = metro.running ? '⏹ Stop' : '▶ Start';
-});
+$('#metroStart').addEventListener('click', () => setMetroRunning(!metro.running));
 
 const taps = [];
 $('#tapBtn').addEventListener('pointerdown', (e) => {
@@ -670,7 +678,8 @@ function renderDayDetail() {
   const list = songs.length
     ? `<ul class="day-songs">${songs
         .map(([id, n]) => {
-          const s = findSong(id);
+          const pic = pictures.find((p) => p.id === id);
+          const s = findSong(id) || (pic && { title: pic.title, emoji: picIcon(pic) });
           return `<li><span>${esc(s ? `${s.emoji || '🎵'} ${s.title}` : id)}</span><span>${n}×</span></li>`;
         })
         .join('')}</ul>`
@@ -863,6 +872,204 @@ function renderMySongs() {
   });
 }
 
+/* ---------------- Uploaded sheet music ---------------- */
+
+const picIcon = (p) => (p.type === 'pdf' ? '📄' : '🖼️');
+
+function renderPictureList() {
+  $('#pictureListWrap').hidden = !pictures.length;
+  $('#pictureList').innerHTML = pictures
+    .map(
+      (p) => `<button class="song-card" type="button" data-id="${esc(p.id)}">
+        <span class="emoji" aria-hidden="true">${picIcon(p)}</span>
+        <span><span class="title">${esc(p.title)}</span><span class="meta">${p.type === 'pdf' ? 'PDF' : 'Photo'} · read along</span></span>
+        <span></span>
+      </button>`,
+    )
+    .join('');
+  $$('#pictureList .song-card').forEach((c) => c.addEventListener('click', () => openPicture(c.dataset.id)));
+}
+
+function renderMyPictures() {
+  const box = $('#myPictures');
+  if (!pictures.length) {
+    box.innerHTML = '<p class="muted">PDFs and photos you upload appear here. They are stored on this device.</p>';
+    return;
+  }
+  box.innerHTML = pictures
+    .map(
+      (p) => `<div class="my-song" data-id="${esc(p.id)}">
+        <span class="name">${picIcon(p)} ${esc(p.title)}</span>
+        <button class="btn" type="button" data-act="open">👀 Open</button>
+        <button class="btn" type="button" data-act="rename">✏️ Rename</button>
+        <button class="btn" type="button" data-act="delete" aria-label="Delete ${esc(p.title)}">🗑️</button>
+      </div>`,
+    )
+    .join('');
+  $$('.my-song', box).forEach((row) => {
+    const p = pictures.find((x) => x.id === row.dataset.id);
+    $$('.btn', row).forEach((btn) =>
+      btn.addEventListener('click', async () => {
+        const act = btn.dataset.act;
+        if (act === 'open') openPicture(p.id);
+        if (act === 'rename') {
+          const title = window.prompt('New name for this sheet music:', p.title);
+          if (title && title.trim()) {
+            await renamePicture(p.id, title);
+            await refreshPictures();
+          }
+        }
+        if (act === 'delete' && window.confirm(`Delete "${p.title}"?`)) {
+          await deletePicture(p.id);
+          await refreshPictures();
+        }
+      }),
+    );
+  });
+}
+
+async function refreshPictures() {
+  try {
+    pictures = await listPictures();
+  } catch (e) {
+    pictures = [];
+  }
+  renderPictureList();
+  renderMyPictures();
+}
+
+const ZOOMS = [0.6, 0.75, 1, 1.25, 1.5, 2, 2.5];
+
+async function openPicture(id) {
+  const meta = pictures.find((p) => p.id === id);
+  if (!meta) return;
+  if (current) closeSong();
+  closePicture(false);
+  $('#pictureTitle').textContent = `${picIcon(meta)} ${meta.title}`;
+  $('#picturePages').textContent = 'Loading…';
+  $('#songListView').hidden = true;
+  $('#songView').hidden = true;
+  $('#pictureView').hidden = false;
+  showTab('songs');
+  const shown = { id, viewer: null, zoom: 1 };
+  pictureShown = shown;
+  tracker.logSong(id);
+  try {
+    const sheet = await getPicture(id);
+    if (!sheet) throw new Error('This sheet music is no longer on this device.');
+    const viewer = await showPicture($('#pictureBox'), sheet);
+    if (pictureShown !== shown) {
+      viewer.destroy();
+      return;
+    }
+    shown.viewer = viewer;
+    $('#picturePages').textContent = viewer.pages === 1 ? '1 page' : `${viewer.pages} pages`;
+  } catch (e) {
+    if (pictureShown !== shown) return;
+    $('#picturePages').textContent = '';
+    $('#pictureBox').innerHTML = `<p class="card">⚠️ Couldn't open this file. ${esc(e.message || '')}</p>`;
+  }
+}
+
+function closePicture(showList = true) {
+  if (pictureShown) {
+    pictureShown.viewer?.destroy();
+    pictureShown = null;
+    setMetroRunning(false);
+  }
+  $('#pictureView').hidden = true;
+  $('#pictureBox').innerHTML = '';
+  if (showList) {
+    $('#songListView').hidden = false;
+    renderSongList();
+  }
+}
+$('#pictureBackBtn').addEventListener('click', () => closePicture());
+
+function zoomPicture(step) {
+  if (!pictureShown?.viewer) return;
+  const i = ZOOMS.indexOf(pictureShown.zoom);
+  const z = step === 0 ? 1 : ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, i + step))];
+  pictureShown.zoom = z;
+  pictureShown.viewer.redraw(z);
+}
+$('#zoomOut').addEventListener('click', () => zoomPicture(-1));
+$('#zoomIn').addEventListener('click', () => zoomPicture(1));
+$('#zoomFit').addEventListener('click', () => zoomPicture(0));
+let pictureResizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(pictureResizeTimer);
+  pictureResizeTimer = setTimeout(() => pictureShown?.viewer?.redraw(), 200);
+});
+
+$('#miniMetroBtn').addEventListener('click', () => setMetroRunning(!metro.running));
+holdRepeat($('#miniBpmDown'), -1);
+holdRepeat($('#miniBpmUp'), 1);
+
+function uploadMessage(html) {
+  $('#uploadMsg').innerHTML = html;
+}
+
+async function handleUpload(file) {
+  if (!file) return;
+  const kind = fileKind(file.name) || (file.type.startsWith('image/') || file.type === 'application/pdf' ? 'picture' : null);
+  if (!kind) {
+    uploadMessage(`<div class="err">⚠️ "${esc(file.name)}" isn't a file I can use. Upload MusicXML (.musicxml, .mxl), ABC (.abc), a PDF or a photo.</div>`);
+    return;
+  }
+  uploadMessage('<div>⏳ Reading the music…</div>');
+  if (kind === 'picture') {
+    try {
+      const p = await addPicture(file);
+      await refreshPictures();
+      uploadMessage(
+        `<div class="ok">✅ Saved "${esc(p.title)}". Find it in 🎵 Songs under <b>My sheet music</b>.</div>
+         <div class="warn">💡 PDFs and photos are shown as pictures, so there's no playback or finger numbers. For those, upload a MusicXML copy (in most notation apps: Export → MusicXML).</div>`,
+      );
+      toast(`Saved "${p.title}" 📄`);
+    } catch (e) {
+      uploadMessage(`<div class="err">⚠️ Couldn't save this file. ${esc(e.message || 'Storage may be full.')}</div>`);
+    }
+    return;
+  }
+  try {
+    const { song, warnings } = await importScoreFile(file);
+    resetForm();
+    $('#fTitle').value = song.title;
+    $('#fEmoji').value = song.emoji;
+    $('#fKey').value = song.key;
+    $('#fBeats').value = song.beatsPerBar;
+    $('#fTempo').value = song.tempo;
+    $('#fNotes').value = song.notes;
+    updatePreview();
+    const count = previewParsed ? previewParsed.notes.filter((n) => n.type === 'note').length : 0;
+    uploadMessage(
+      `<div class="ok">✅ Read ${count} notes from "${esc(file.name)}". Check them in the form below, press ▶ Listen, then 💾 Save song.</div>` +
+        warnings.map((w) => `<div class="warn">💡 ${esc(w)}</div>`).join(''),
+    );
+    $('#songForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {
+    uploadMessage(`<div class="err">⚠️ ${esc(e.message || "Couldn't read this file.")}</div>`);
+  }
+}
+
+$('#uploadInput').addEventListener('change', (e) => {
+  handleUpload(e.target.files[0]);
+  e.target.value = '';
+});
+const dropZone = $('#dropZone');
+['dragenter', 'dragover'].forEach((ev) =>
+  dropZone.addEventListener(ev, (e) => {
+    e.preventDefault();
+    dropZone.classList.add('over');
+  }),
+);
+['dragleave', 'drop'].forEach((ev) => dropZone.addEventListener(ev, () => dropZone.classList.remove('over')));
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  handleUpload(e.dataTransfer.files[0]);
+});
+
 /* ---------------- Start up ---------------- */
 
 // Browsers only allow sound after the first tap. Use that first tap to load the violin
@@ -887,8 +1094,10 @@ async function init() {
     );
   }
   renderSongList();
+  await refreshPictures();
   renderDayDetail();
-  if (tracker.running) keepAwake(true);
+  if (tracker.running)
+ keepAwake(true);
   celebrate(tracker.checkBadges());
 }
 

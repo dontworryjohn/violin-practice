@@ -23,8 +23,12 @@ Open http://localhost:8000. Opening `index.html` directly from disk won't load `
   A change to playback, highlighting or looping must be tested in both views and both styles. Every
   note in `songs.json` must appear on the staff: `renderSheet(...).count` equals the number of parsed notes.
 - Saved data lives in `localStorage` under `violinPractice.progress.v1` (practice),
-  `violinPractice.customSongs.v1` (custom songs) and `violinPractice.view.v1` (letters/sheet, finger numbers, band/baton). If a change alters their shape, old saved data
+  `violinPractice.customSongs.v1` (custom songs) and `violinPractice.view.v1` (letters/sheet, finger numbers, band/baton).
+  Uploaded PDFs and photos live in IndexedDB, database `violinPractice.sheets`, store `sheets`. If a change alters their shape, old saved data
   must still load. To reset while testing: F12 → Application → Local storage → Clear.
+
+- Uploads (`js/import.js`): test with a MusicXML file, an `.mxl` (zipped) copy, an ABC file, a PDF and a photo.
+  An imported score must fill the Add Song form with no `errors`, and play in both views.
 
 ## Conventions
 - Songs use the letter/finger format documented in the README (`A0 E1:2 | ...`), in first position.
