@@ -2,7 +2,9 @@
 
 Checks `js/omr.js`, which reads notes from PDFs and photos of sheet music. It makes sheet music
 whose notes are known (the songs in `songs.json` and a D major scale), draws it in two engraving
-styles, turns some pages into scan-like and photo-like pictures, then reads them all and compares.
+styles (plus a copy of Lightly Row with slurs over pairs of notes, which must not be mistaken for
+flags or beams), turns some pages into scan-like and photo-like pictures, then reads them all and
+compares.
 
 Generated files go in `tests/omr/out/` (not committed).
 

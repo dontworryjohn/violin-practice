@@ -21,7 +21,9 @@ function noteType(beats) {
   );
 }
 
-function musicXml(song, bars) {
+// `slurs`: join notes in pairs with slurs (curves that must not be mistaken for flags or beams).
+function musicXml(song, bars, { slurs = false } = {}) {
+  let k = 0;
   const meas = bars.map((bar, i) => {
     const attrs = i
       ? ''
@@ -35,7 +37,12 @@ function musicXml(song, bars) {
         if (n.midi == null) return `<note><rest/><duration>${dur}</duration><voice>1</voice><type>${type}</type>${dotXml}</note>`;
         const pc = n.midi % 12;
         const alter = ALTER[pc] ? '<alter>1</alter>' : '';
-        return `<note><pitch><step>${STEPS[pc]}</step>${alter}<octave>${Math.floor(n.midi / 12) - 1}</octave></pitch><duration>${dur}</duration><voice>1</voice><type>${type}</type>${dotXml}</note>`;
+        // Pairs of notes: start, stop, start, stop… (no unfinished slur on the last note).
+        const total = bars.flat().filter((x) => x.midi != null).length;
+        const kind = k % 2 ? 'stop' : k < total - 1 ? 'start' : null;
+        k++;
+        const slur = slurs && kind ? `<notations><slur number="1" type="${kind}"/></notations>` : '';
+        return `<note><pitch><step>${STEPS[pc]}</step>${alter}<octave>${Math.floor(n.midi / 12) - 1}</octave></pitch><duration>${dur}</duration><voice>1</voice><type>${type}</type>${dotXml}${slur}</note>`;
       })
       .join('');
     return `<measure number="${i + 1}">${attrs}${notes}</measure>`;
@@ -68,6 +75,11 @@ function musicXml(song, bars) {
     const truth = { title: s.title, key: s.key, beatsPerBar: s.beatsPerBar, tempo: s.tempo, bars: s.bars };
     fs.writeFileSync(path.join(OUT, `${s.id}.truth.json`), JSON.stringify(truth));
     fs.writeFileSync(path.join(OUT, `${s.id}.musicxml`), musicXml(s, s.bars));
+    if (s.id === 'lightly-row') {
+      // The same tune with slurs over pairs of notes, like many teachers' sheets.
+      fs.writeFileSync(path.join(OUT, 'lightly-row-slurs.truth.json'), JSON.stringify(truth));
+      fs.writeFileSync(path.join(OUT, 'lightly-row-slurs.musicxml'), musicXml(s, s.bars, { slurs: true }));
+    }
 
     // abcjs drawing (no finger labels), letter-size page.
     const p2 = await browser.newPage();
