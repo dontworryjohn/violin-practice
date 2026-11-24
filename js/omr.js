@@ -1068,6 +1068,15 @@ function toBars(part) {
   middle.filter((t) => t > 0).forEach((t) => counts.set(t, (counts.get(t) || 0) + 1));
   let beatsPerBar = [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0] || 4;
   bars.forEach((b) => b.forEach((n) => n.beats === 'bar' && (n.beats = beatsPerBar)));
+  // A bar line hidden under a pen stroke or a slur joins two bars into one that is too long. When
+  // its first notes make exactly one full bar, the missing line was there: split it.
+  for (let i = 0; i < bars.length; i++) {
+    const bar = bars[i];
+    if (bar.reduce((a, n) => a + n.beats, 0) <= beatsPerBar + 1e-6) continue;
+    let sum = 0;
+    const cut = bar.findIndex((n) => Math.abs((sum += n.beats) - beatsPerBar) < 1e-6);
+    if (cut >= 0 && cut < bar.length - 1) bars.splice(i, 1, bar.slice(0, cut + 1), bar.slice(cut + 1));
+  }
   const off = bars.filter((b, i) => i > 0 && i < bars.length - 1 && Math.abs(b.reduce((a, n) => a + n.beats, 0) - beatsPerBar) > 1e-6).length;
   return { bars, fifths: firstKey, beatsPerBar, off };
 }
