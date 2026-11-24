@@ -685,7 +685,23 @@ function readPage({ w, h, gray }, texts = []) {
     // A head cut out of a wider shape: its ink runs on into the sign or bar line beside it, so
     // keep the outline to the head's own size around the core.
     const cap = c.touching ? (v, core) => Math.min(v, core) : (v) => v;
-    const x0 = cx0 - cap(left, cx0 - c.x0 + rx + 1);
+    // Too wide, with a sign's upright stroke on the left (a sharp, flat or natural touching the
+    // head): the head is only the right part.
+    let touching = c.touching || null;
+    let leftReach = cap(left, cx0 - c.x0 + rx + 1);
+    if (!touching && left + right + 1 > 1.45 * d) {
+      const strokes = range(cx0 - left, Math.round(cx0 - 0.5 * d)).filter((x) => {
+        const run = verticalRun(sym, w, h, x, cy0);
+        return run.up >= 0.6 * d && run.down >= 0.6 * d && run.up + run.down >= 1.6 * d && run.up + run.down <= 3.6 * d;
+      });
+      if (strokes.length) {
+        // The head starts at the first ink after the sign's last stroke (the gap between them was filled).
+        let start = strokes[strokes.length - 1] + 1;
+        while (start < cx0 && !sym[cy0 * w + start]) start++;
+        [leftReach, touching] = [cx0 - start, 'sign'];
+      }
+    }
+    const x0 = cx0 - leftReach;
     const x1 = cx0 + cap(right, c.x1 - cx0 + rx + 1);
     const y0 = cy0 - cap(up, cy0 - c.y0 + ry + 1);
     const y1 = cy0 + cap(down, c.y1 - cy0 + ry + 1);
@@ -708,7 +724,7 @@ function readPage({ w, h, gray }, texts = []) {
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) ink += filled[y * w + x];
     const boxFill = ink / ((y1 - y0 + 1) * (x1 - x0 + 1));
     const headLike = y1 - y0 + 1 >= 0.7 * d && y1 - y0 + 1 <= 1.5 * d && x1 - x0 + 1 >= 0.8 * d && x1 - x0 + 1 <= 2.2 * d;
-    heads.push({ x0, x1, y0, y1, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, width: x1 - x0 + 1, height: y1 - y0 + 1, hollow: middle > 0.2 || (above > 0.15 && below > 0.15), boxFill, headLike, touching: c.touching || null });
+    heads.push({ x0, x1, y0, y1, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, width: x1 - x0 + 1, height: y1 - y0 + 1, hollow: middle > 0.2 || (above > 0.15 && below > 0.15), boxFill, headLike, touching });
   }
 
   const typical = median(heads.filter((n) => n.headLike && n.width <= 1.6 * d).map((n) => n.width)) || 1.25 * d;
@@ -812,7 +828,9 @@ function readPage({ w, h, gray }, texts = []) {
       reject(n, 'no ledger line');
       continue;
     } // e.g. the little note in a tempo mark "♩ = 100" above the staff
-    if (n.boxFill > 0.93 && !n.touching) {
+    // (Whole and half rests are under a space tall; a head filling a whole space between two lines
+    // is taller and nearly as square.)
+    if (n.boxFill > 0.93 && !n.touching && n.height < 0.9 * d) {
       reject(n, `boxFill ${n.boxFill.toFixed(2)}`);
       continue;
     } // a solid rectangle: a rest, handled below
@@ -880,17 +898,31 @@ function readPage({ w, h, gray }, texts = []) {
       // Only ink joined to this stem counts: a slur starting near the stem's end is a separate
       // curve, not a flag or beam.
       const stemLabel = labels[Math.round((n.cy + tip) / 2) * w + x];
-      let beams = 0;
+      const ya = Math.round(tip + dir * 0.6 * d); // a little past the tip, as beams slope
+      // ...back along the stem, but not into the head (a short stem under a beam is close to it).
+      const clear = dir > 0 ? n.y1 + 0.3 * d : n.y0 - 0.3 * d;
+      const yb = Math.round(dir > 0 ? Math.max(tip - 2.2 * d, clear) : Math.min(tip + 2.2 * d, clear));
+      const bySide = { [-1]: 0, 1: 0 };
       for (const side of [-1, 1]) {
         for (const off of [0.35, 0.5, 0.65]) {
           const cx = x + side * Math.round(off * d);
           if (cx < 0 || cx >= w) continue;
-          const ya = Math.round(tip + dir * 0.6 * d); // a little past the tip, as beams slope
-          const yb = Math.round(tip - dir * 2.2 * d);
           if (Math.min(ya, yb) < 0 || Math.max(ya, yb) >= h) continue;
-          beams = Math.max(beams, runsInColumn(sym, w, cx, ya, yb, minRun, Math.max(2, Math.round(0.12 * d)), n.staff.lines, stemLabel ? labels : null, stemLabel));
+          bySide[side] = Math.max(bySide[side], runsInColumn(sym, w, cx, ya, yb, minRun, Math.max(2, Math.round(0.12 * d)), n.staff.lines, stemLabel ? labels : null, stemLabel));
         }
       }
+      // A flag hangs on the right of the stem. Ink only on the left must be a beam from the note
+      // before, reaching well to the left; a dynamic such as "f" touching the stem's end doesn't.
+      if (bySide[-1] > bySide[1]) {
+        const reachLeft = range(Math.min(ya, yb), Math.max(ya, yb)).some((y) => {
+          if (y < 0 || y >= h) return false;
+          let k = 0;
+          while (x - k - 1 >= 0 && sym[y * w + x - k - 1]) k++;
+          return k >= 1.8 * d;
+        });
+        if (!reachLeft) bySide[-1] = bySide[1];
+      }
+      const beams = Math.max(bySide[-1], bySide[1]);
       n.beats = 1 / 2 ** Math.min(3, beams);
     }
   }
@@ -948,8 +980,17 @@ function readPage({ w, h, gray }, texts = []) {
       const shape = acc ? accidentalShape(sym, w, acc, d) : null;
       // A sign joined to its head, or to a slur over it, isn't a shape of its own: read the ink just
       // left of the head.
-      const joinedTo = n.touching === 'sign' || (acc && acc.x1 - acc.x0 > 1.35 * d);
-      const box = shape === null && joinedTo ? inkBox(sym, w, h, Math.round(n.x0 - 1.3 * d), Math.round(n.cy - 1.6 * d), Math.round(n.x0) - 1, Math.round(n.cy + 1.6 * d)) : null;
+      // (Stopping short of the note's own stem, which is on the left when it points down, and not
+      // reaching back into the key signature.)
+      const leftEdge = n.stem && n.stem.x < n.cx ? Math.min(n.x0, n.stem.x - 0.15 * d) : n.x0;
+      const [bx0, bx1] = [Math.max(Math.round(leftEdge - 1.3 * d), Math.ceil(s.headerEnd) + 1), Math.round(leftEdge) - 1];
+      const signStroke = () =>
+        range(Math.max(0, bx0), bx1).some((x) => {
+          const { up, down } = verticalRun(sym, w, h, x, Math.round(n.cy));
+          return up >= 0.6 * d && down >= 0.6 * d && up + down >= 1.6 * d && up + down <= 3.6 * d;
+        }) && !sNotes.some((m) => m !== n && m.x1 >= bx0 && m.x0 <= bx1 && Math.abs(m.cy - n.cy) < 2 * d);
+      const joinedTo = n.touching === 'sign' || (acc && acc.x1 - acc.x0 > 1.35 * d) || (!acc && shape === null && signStroke());
+      const box = shape === null && joinedTo ? inkBox(sym, w, h, bx0, Math.round(n.cy - 1.6 * d), bx1, Math.round(n.cy + 1.6 * d)) : null;
       const joined = box ? accidentalShape(sym, w, box, d) : null;
       if (shape !== null) {
         n.acc = shape;
@@ -1009,8 +1050,10 @@ function readPage({ w, h, gray }, texts = []) {
       } else if (cw >= 0.45 * d && cw <= 1.35 * d && accidentalShape(sym, w, c, d) === null && hasSolid(sym, w, c, Math.max(2, Math.round(0.3 * d)))) {
         // (Quarter and eighth rests have a solid blob or thick stroke; a piece of a steep slur cut
         // up by the staff lines is a thin curve.)
-        if (ch >= 2.1 * d && ch <= 3.6 * d) beats = 1;
-        else if (ch >= 1.2 * d && ch < 2.1 * d) beats = 0.5;
+        // (They sit around the middle line; a slur piece is usually higher or lower.)
+        const centred = Math.abs(cyc - s.lines[2].y) <= 0.6 * d;
+        if (centred && ch >= 2.1 * d && ch <= 3.6 * d) beats = 1;
+        else if (centred && ch >= 1.2 * d && ch < 2.1 * d) beats = 0.5;
       }
       if (beats === null) continue;
       c.used = 'rest';
