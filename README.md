@@ -69,6 +69,15 @@ Not read from pictures: ties, slurs and repeat signs (tied notes show as separat
 top note is kept), lyrics and fingering numbers. Clefs other than treble aren't recognised. The time signature
 is worked out from how many beats the bars hold.
 
+- **Several movements or pieces in one file** (each starting on a line with a time signature) are read as
+  separate parts: the first goes into the form, and a **🎼 Part 2 (page 3)** button puts another one there instead.
+- **Rests of several bars** (a thick bar with a number above it, such as the piano's introduction) are kept as
+  that many bars of rest, so the violin comes in at the right time.
+- **A teacher's coloured pen** (red, blue, highlighter) is ignored. Pencil and black pen look like print, and can
+  hide or add notes.
+- The speed comes from a number (♩ = 100) or a tempo word (*Allegro moderato* → 112) printed in a PDF. Scans
+  have no readable text, so set the speed yourself.
+
 How notes become string + finger: every note goes in first position, on the open string where it is one, otherwise on the
 highest string that reaches it (low/high fingers are marked with `L`/`H` when the key's usual finger would be wrong).
 Notes below G3 or above B5 move by an octave. Only the top note of a chord and the first voice of the violin part

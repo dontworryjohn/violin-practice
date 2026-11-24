@@ -32,7 +32,17 @@ function grayOf(canvas) {
   for (let i = 0, j = 0; i < gray.length; i++, j += 4) {
     // Transparent counts as white paper.
     const a = px[j + 3] / 255;
-    gray[i] = Math.round((0.299 * px[j] + 0.587 * px[j + 1] + 0.114 * px[j + 2]) * a + 255 * (1 - a));
+    const r = px[j];
+    const g = px[j + 1];
+    const b = px[j + 2];
+    // Strongly coloured marks (a teacher's red or blue pen, a highlighter) aren't printed music:
+    // treat them as paper. Printed ink is black or grey, and dark navy stays ink.
+    const hi = Math.max(r, g, b);
+    if (hi - Math.min(r, g, b) > 70 && hi > 110) {
+      gray[i] = 255;
+      continue;
+    }
+    gray[i] = Math.round((0.299 * r + 0.587 * g + 0.114 * b) * a + 255 * (1 - a));
   }
   return { w, h, gray };
 }
@@ -243,39 +253,106 @@ function findStaves(dark, w, h) {
   for (let y = 0; y < h; y++) {
     if (longest[y] < minRun) continue;
     const last = lines[lines.length - 1];
-    if (last && y - last.y1 <= 1) last.y1 = y;
-    else lines.push({ y0: y, y1: y });
+    if (last && y - last.y1 <= 1) (last.y1 = y), (last.len = Math.max(last.len, longest[y]));
+    else lines.push({ y0: y, y1: y, len: longest[y] });
   }
   lines.forEach((l) => (l.y = (l.y0 + l.y1) / 2));
 
-  const staves = [];
-  for (let i = 0; i + 4 < lines.length; ) {
-    const group = lines.slice(i, i + 5);
-    const gaps = group.slice(1).map((l, k) => l.y - group[k].y);
-    const thick = Math.max(...group.map((l) => l.y1 - l.y0 + 1));
-    const ok = Math.max(...gaps) <= Math.min(...gaps) * 1.3 && Math.min(...gaps) >= thick * 2.5 && Math.min(...gaps) >= 4;
-    if (!ok) {
-      i++;
-      continue;
-    }
-    const d = (group[4].y - group[0].y) / 4;
-    // Left and right ends of the staff, from the middle line.
-    const mid = group[2];
-    const yRow = Math.round(mid.y) * w;
-    let best = [0, 0];
-    let start = -1;
-    for (let x = 0; x <= w; x++) {
-      if (x < w && dark[yRow + x]) {
-        if (start < 0) start = x;
-      } else if (start >= 0) {
-        if (x - start > best[1] - best[0]) best = [start, x - 1];
-        start = -1;
+  // A row much thicker than the usual line is a line with a beam lying on it: the line itself is
+  // at the top edge, the middle or the bottom edge of the band, whichever is nearest where it should be.
+  const lineThick = median(lines.map((l) => l.y1 - l.y0 + 1));
+  const thickened = (l) => l.y1 - l.y0 + 1 > lineThick + 2;
+  const edges = (l) => (thickened(l) ? [l.y0 + (lineThick - 1) / 2, l.y, l.y1 - (lineThick - 1) / 2] : [l.y]);
+  const placeNear = (l, want) => edges(l).reduce((a, b) => (Math.abs(b - want) < Math.abs(a - want) ? b : a));
+
+  // Five evenly spaced lines starting at lines[i], skipping stray rows in between (a beam or the
+  // bottom of a slur can be as long as a short staff). Returns the group and how uneven it is.
+  const groupFrom = (i, spacing) => {
+    let best = null;
+    for (let j = i + 1; j <= i + 3 && j < lines.length; j++) {
+      for (const y0 of edges(lines[i])) {
+        for (const y1 of edges(lines[j])) {
+          const g = y1 - y0;
+          if (g < 4 || (spacing && (g < 0.8 * spacing || g > 1.25 * spacing))) continue;
+          const group = [{ l: lines[i], y: y0 }, { l: lines[j], y: y1 }];
+          for (let k = 2; k < 5 && group.length === k; k++) {
+            const want = y0 + k * g;
+            // Nearest row, but a plain full-length line beats a thick or short one (a beam) nearby.
+            const cost = (c) => Math.abs(c.y - want) + (thickened(c.l) ? 0.15 * g : 0) + (c.l.len < 0.5 * lines[i].len ? 0.15 * g : 0);
+            const near = lines
+              .map((l) => ({ l, y: placeNear(l, want) }))
+              .filter((c) => Math.abs(c.y - want) <= 0.25 * g)
+              .sort((a, b) => cost(a) - cost(b))[0];
+            if (near) group.push(near);
+          }
+          if (group.length < 5) continue;
+          // Rows skipped over must be strays (beams, slurs), not lines as long as the staff's: that
+          // would be five lines picked from different staffs.
+          const typicalLen = median(group.map((c) => c.l.len));
+          const last = lines.indexOf(group[4].l);
+          const skipped = lines.slice(i, last).filter((l) => !group.some((c) => c.l === l));
+          if (skipped.length > 2 || skipped.some((l) => l.len >= 0.8 * typicalLen)) continue;
+          const gaps = group.slice(1).map((c, k) => c.y - group[k].y);
+          if (Math.max(...gaps) > Math.min(...gaps) * 1.3 || Math.min(...gaps) < lineThick * 2.5) continue;
+          // How uneven the group is, plus a little for each line that is a thick or short row.
+          const odd = group.filter((c) => thickened(c.l) || c.l.len < 0.5 * typicalLen).length;
+          const score = Math.max(...gaps) / Math.min(...gaps) + 0.05 * odd;
+          if (!best || score < best.score) best = { group, score, last };
+        }
       }
     }
-    staves.push({ lines: group, d, x0: best[0], x1: best[1], top: group[0].y, bottom: group[4].y });
-    i += 5;
+    return best;
+  };
+
+  // All staffs on a page have the same spacing. A first pass finds it; the second keeps to it, so
+  // rows of beams (evenly spaced in a run of sixteenths) aren't taken for a staff.
+  const first = scan();
+  if (first.length < 2) return first;
+  const spacing = median(first.map((s) => s.d));
+  return scan(spacing);
+
+  function scan(spacing) {
+    const staves = [];
+    for (let i = 0; i + 4 < lines.length; ) {
+      let found = groupFrom(i, spacing);
+      if (!found) {
+        i++;
+        continue;
+      }
+      // A mark just above the staff can start a group that is nearly even: prefer the group starting
+      // one row lower if it fits better.
+      const next = i + 1 < lines.length ? groupFrom(i + 1, spacing) : null;
+      if (next && next.group[0].l === found.group[1].l && next.score < found.score) found = next;
+      // Lines thickened by beams are only roughly placed: on the second pass, put them where the
+      // page's usual spacing says, counting from the plain lines.
+      const plain = found.group.map((c, k) => [c, k]).filter(([c]) => !thickened(c.l));
+      const from = plain.length ? plain : found.group.map((c, k) => [c, k]);
+      const anchor = spacing ? from.reduce((a, [c, k]) => a + c.y - k * spacing, 0) / from.length : 0;
+      const group = found.group.map(({ l, y }, k) => {
+        if (!thickened(l)) return { ...l };
+        const at = spacing ? anchor + k * spacing : y;
+        const y0 = Math.round(at - (lineThick - 1) / 2);
+        return { ...l, y: at, y0, y1: y0 + lineThick - 1 };
+      });
+      i = found.last + 1;
+      const d = (group[4].y - group[0].y) / 4;
+      // Left and right ends of the staff, from the middle line.
+      const mid = group[2];
+      const yRow = Math.round(mid.y) * w;
+      let best = [0, 0];
+      let start = -1;
+      for (let x = 0; x <= w; x++) {
+        if (x < w && dark[yRow + x]) {
+          if (start < 0) start = x;
+        } else if (start >= 0) {
+          if (x - start > best[1] - best[0]) best = [start, x - 1];
+          start = -1;
+        }
+      }
+      staves.push({ lines: group, d, x0: best[0], x1: best[1], top: group[0].y, bottom: group[4].y });
+    }
+    return staves;
   }
-  return staves;
 }
 
 // Widens each line's band to include grey edge rows, then rubs the lines out where nothing crosses them.
@@ -562,15 +639,27 @@ function readPage({ w, h, gray }, texts = []) {
     const near = nearby.filter((c) => !c.used && c.x0 > end && c.x0 < end + 2.5 * d);
     for (const a of near) {
       const b = near.find((o) => o !== a && o.y0 > a.y1 - 0.3 * d && Math.min(o.x1, a.x1) - Math.max(o.x0, a.x0) > 0.3 * d);
-      const digit = (c) => c.y1 - c.y0 > 1.4 * d && c.y1 - c.y0 < 2.5 * d && !holdsHead(c);
+      // (A notehead on its own is under 1.5 spaces tall and with a stem over 3, so a shape this size
+      // is a digit or a C even if a bold stroke of it looks like a notehead.)
+      const digit = (c) => c.y1 - c.y0 > 1.4 * d && c.y1 - c.y0 < 2.5 * d && c.x1 - c.x0 < 2 * d;
+      // Two bold digits touching at the middle line make one solid shape as tall as the staff.
+      const fullHeight = a.y0 > s.top - 0.6 * d && a.y0 < s.top + 0.4 * d && a.y1 > s.bottom - 0.4 * d && a.y1 < s.bottom + 0.6 * d;
+      if (fullHeight && a.x1 - a.x0 > 1.1 * d && a.x1 - a.x0 < 2 * d && a.n / ((a.x1 - a.x0 + 1) * (a.y1 - a.y0 + 1)) > 0.4) {
+        a.used = 'time';
+        s.timeSig = true;
+        end = Math.max(end, a.x1);
+        break;
+      }
       if (b && a.y1 <= mid + 0.4 * d && b.y0 >= mid - 0.4 * d && digit(a) && digit(b)) {
         a.used = b.used = 'time';
+        s.timeSig = true;
         end = Math.max(end, a.x1, b.x1);
         break;
       }
       const ah = a.y1 - a.y0;
-      if (ah > 1.6 * d && ah < 2.6 * d && a.y0 < mid && a.y1 > mid && a.x1 - a.x0 > 1.1 * d && !holdsHead(a)) {
+      if (ah > 1.6 * d && ah < 2.6 * d && a.y0 < mid && a.y1 > mid && a.x1 - a.x0 > 1.1 * d && a.x1 - a.x0 < 2 * d) {
         a.used = 'time';
+        s.timeSig = true;
         end = Math.max(end, a.x1);
         break;
       }
@@ -667,6 +756,7 @@ function readPage({ w, h, gray }, texts = []) {
     const twin = kept.find((k) => k.staff === n.staff && Math.abs(k.cx - n.cx) < 0.6 * d && ((k.stem && n.stem && Math.abs(k.stem.x - n.stem.x) <= 2) || (!k.stem && !n.stem)));
     if (twin) {
       chords++;
+      n.staff.chords = (n.staff.chords || 0) + 1;
       if (n.cy < twin.cy) Object.assign(twin, n);
       continue;
     }
@@ -704,6 +794,7 @@ function readPage({ w, h, gray }, texts = []) {
   // Bar lines, dots, accidentals and rests, from the remaining shapes.
   const events = [];
   let unreadAcc = 0;
+  let unreadRests = 0;
   for (const s of staves) {
     const sNotes = kept.filter((n) => n.staff === s);
     const free = s.comps.filter((c) => !c.used);
@@ -746,7 +837,10 @@ function readPage({ w, h, gray }, texts = []) {
 
     for (const n of sNotes) {
       // Sharp, flat or natural just in front of the note.
-      const acc = free.find((c) => !c.used && c.x1 < n.x0 + 0.2 * d && c.x1 > n.x0 - 1.8 * d && c.y0 < n.cy && c.y1 > n.cy);
+      // (Looked for among all shapes, not only those on the staff: notes on ledger lines have their
+      // sharps and dots above or below it.)
+      const around = n.cy < s.top - 0.5 * d || n.cy > s.bottom + 0.5 * d ? comps : free;
+      const acc = around.find((c) => !c.used && c.x1 < n.x0 + 0.2 * d && c.x1 > n.x0 - 1.8 * d && c.y0 < n.cy && c.y1 > n.cy);
       if (acc) {
         const shape = accidentalShape(sym, w, acc, d);
         if (shape !== null) {
@@ -754,16 +848,41 @@ function readPage({ w, h, gray }, texts = []) {
           acc.used = 'acc';
         } else if (acc.y1 - acc.y0 > 1.7 * d && acc.x1 - acc.x0 < 1.2 * d) {
           unreadAcc++;
+          s.unreadAcc = (s.unreadAcc || 0) + 1;
         }
       }
       // Dot after the note makes it half as long again.
       const after = n.stem && n.stem.dir < 0 ? Math.max(n.x1, n.stem.x) : n.x1;
-      const dot = free.find((c) => !c.used && isDot(c, d) && c.x0 > after && c.x0 < after + 1.5 * d && Math.abs((c.y0 + c.y1) / 2 - n.cy) < 0.8 * d);
+      const dot = around.find((c) => !c.used && isDot(c, d) && c.x0 > after && c.x0 < after + 1.5 * d && Math.abs((c.y0 + c.y1) / 2 - n.cy) < 0.8 * d);
       if (dot) {
         n.beats *= 1.5;
         dot.used = 'dot';
       }
       events.push({ staff: s, x: n.cx, kind: 'note', note: n });
+    }
+
+    // A rest of several bars: a thick bar along the middle line with a number above it.
+    for (const c of free) {
+      if (c.used || c.x0 <= s.headerEnd) continue;
+      const cw = c.x1 - c.x0 + 1;
+      if (cw < 2.5 * d || c.y1 - c.y0 > 2.6 * d || Math.abs((c.y0 + c.y1) / 2 - s.lines[2].y) > 0.7 * d) continue;
+      let solidRows = 0;
+      for (let y = c.y0; y <= c.y1; y++) {
+        let n = 0;
+        for (let x = c.x0; x <= c.x1; x++) n += sym[y * w + x];
+        if (n > 0.8 * cw) solidRows++;
+      }
+      if (solidRows < 0.35 * d) continue;
+      c.used = 'rest';
+      const digits = comps
+        .filter((o) => o.x0 >= c.x0 - 0.5 * d && o.x1 <= c.x1 + 0.5 * d && o.y1 < s.top - 0.2 * d && o.y1 > s.top - 1.2 * d && o.y1 - o.y0 > 1.1 * d && o.y1 - o.y0 < 3.2 * d)
+        .sort((a, b) => a.x0 - b.x0);
+      const count = readNumber(sym, w, digits);
+      if (!count) {
+        unreadRests++;
+        s.unreadRests = (s.unreadRests || 0) + 1;
+      }
+      events.push({ staff: s, x: (c.x0 + c.x1) / 2, kind: 'multirest', count: count || 1 });
     }
 
     // Rests.
@@ -792,7 +911,68 @@ function readPage({ w, h, gray }, texts = []) {
       events.push({ staff: s, x: (c.x0 + c.x1) / 2, kind: 'rest', beats });
     }
   }
-  return { staves, events, chords, unreadAcc, d };
+  return { staves, events, chords, unreadAcc, unreadRests, d };
+}
+
+// Reads a bar count such as "4" or "12" printed above a rest of several bars, by comparing each
+// digit's shape with digits drawn in a few printing fonts. Returns null if they don't look alike.
+let digitShapes = null;
+const DIGIT_W = 12;
+const DIGIT_H = 18;
+function shapeOf(get, x0, y0, x1, y1) {
+  const out = new Uint8Array(DIGIT_W * DIGIT_H);
+  for (let y = 0; y < DIGIT_H; y++) {
+    for (let x = 0; x < DIGIT_W; x++) {
+      const sx = Math.min(x1, Math.floor(x0 + ((x + 0.5) * (x1 - x0 + 1)) / DIGIT_W));
+      const sy = Math.min(y1, Math.floor(y0 + ((y + 0.5) * (y1 - y0 + 1)) / DIGIT_H));
+      out[y * DIGIT_W + x] = get(sx, sy);
+    }
+  }
+  return out;
+}
+function loadDigitShapes() {
+  if (digitShapes) return digitShapes;
+  digitShapes = [];
+  for (const font of ['bold 80px "Times New Roman", serif', 'bold 80px Georgia, serif', 'bold 80px Arial, sans-serif']) {
+    for (let digit = 0; digit <= 9; digit++) {
+      const c = newCanvas(80, 110);
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.fillStyle = '#000';
+      ctx.font = font;
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(digit), 10, 55);
+      const { w, gray } = grayOf(c);
+      let [x0, y0, x1, y1] = [80, 110, -1, -1];
+      for (let y = 0; y < 110; y++) {
+        for (let x = 0; x < 80; x++) {
+          if (gray[y * w + x] < 128) [x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)];
+        }
+      }
+      if (x1 < 0) continue;
+      digitShapes.push({ digit, aspect: (x1 - x0 + 1) / (y1 - y0 + 1), shape: shapeOf((x, y) => (gray[y * w + x] < 128 ? 1 : 0), x0, y0, x1, y1) });
+    }
+  }
+  return digitShapes;
+}
+function readNumber(img, w, comps) {
+  if (!comps.length || comps.length > 2) return null;
+  let text = '';
+  for (const c of comps) {
+    const shape = shapeOf((x, y) => img[y * w + x], c.x0, c.y0, c.x1, c.y1);
+    const aspect = (c.x1 - c.x0 + 1) / (c.y1 - c.y0 + 1);
+    let best = null;
+    for (const t of loadDigitShapes()) {
+      let same = 0;
+      for (let i = 0; i < shape.length; i++) same += shape[i] === t.shape[i];
+      // A "1" is far narrower than other digits, so the width counts too.
+      const score = same / shape.length - Math.abs(Math.log(aspect / t.aspect)) * 0.3;
+      if (!best || score > best.score) best = { digit: t.digit, score };
+    }
+    if (!best || best.score < 0.72) return null;
+    text += best.digit;
+  }
+  const n = Number(text);
+  return n >= 1 && n <= 99 ? n : null;
 }
 
 function isDot(c, d) {
@@ -828,14 +1008,36 @@ function pitchOf(note, keyAcc, barAcc) {
   return (octave + 1) * 12 + LETTER_SEMIS[LETTERS.indexOf(letter)] + alter;
 }
 
-function toBars(pagesRead) {
-  const staves = pagesRead.flatMap((p) => p.staves);
-  const first = staves.find((s) => s.keyAcc.length) || staves[0];
-  const fifths = first.keyAcc.length ? first.keyAcc[0] * first.keyAcc.length : 0;
-  const keyAcc = new Map();
+// Key signature as a number of sharps (+) or flats (-), and the matching letter -> alteration map.
+function keyOf(staff) {
+  return staff.keyAcc.length ? staff.keyAcc[0] * staff.keyAcc.length : 0;
+}
+function keyMap(fifths) {
+  const map = new Map();
   const order = fifths > 0 ? SHARP_ORDER : FLAT_ORDER;
-  for (let i = 0; i < Math.abs(fifths); i++) keyAcc.set(order[i], Math.sign(fifths));
+  for (let i = 0; i < Math.abs(fifths); i++) map.set(order[i], Math.sign(fifths));
+  return map;
+}
 
+// Splits the staffs into pieces (movements, or separate pieces in one file): a new one starts at a
+// staff that opens with a time signature. (Mid-piece time changes are rarely at the start of a line.)
+function splitParts(pagesRead) {
+  const parts = [];
+  for (const page of pagesRead) {
+    for (const staff of page.staves) {
+      if (!parts.length || staff.timeSig) parts.push({ staves: [], pages: [] });
+      const part = parts[parts.length - 1];
+      part.staves.push({ staff, events: page.events.filter((e) => e.staff === staff) });
+      if (!part.pages.includes(page.page)) part.pages.push(page.page);
+    }
+  }
+  return parts;
+}
+
+function toBars(part) {
+  // Each line's own key signature, so a change of key at the start of a line is followed. A line
+  // whose key couldn't be read keeps the one before it.
+  let fifths = null;
   const bars = [];
   let bar = [];
   let barAcc = new Map();
@@ -844,17 +1046,20 @@ function toBars(pagesRead) {
     bar = [];
     barAcc = new Map();
   };
-  for (const page of pagesRead) {
-    for (const s of page.staves) {
-      const ev = page.events.filter((e) => e.staff === s).sort((a, b) => a.x - b.x);
-      for (const e of ev) {
-        if (e.kind === 'bar') close();
-        else if (e.kind === 'rest') bar.push({ midi: null, beats: e.beats });
-        else bar.push({ midi: pitchOf(e.note, keyAcc, barAcc), beats: e.note.beats });
-      }
-      close(); // a new line always starts a new bar
+  for (const { staff, events } of part.staves) {
+    if (staff.keyAcc.length || fifths === null) fifths = keyOf(staff);
+    const keyAcc = keyMap(fifths);
+    for (const e of [...events].sort((a, b) => a.x - b.x)) {
+      if (e.kind === 'bar') close();
+      else if (e.kind === 'multirest') {
+        close();
+        for (let i = 0; i < e.count; i++) bars.push([{ midi: null, beats: 'bar' }]);
+      } else if (e.kind === 'rest') bar.push({ midi: null, beats: e.beats });
+      else bar.push({ midi: pitchOf(e.note, keyAcc, barAcc), beats: e.note.beats });
     }
+    close(); // a new line always starts a new bar
   }
+  const firstKey = keyOf(part.staves.find(({ staff }) => staff.keyAcc.length)?.staff || part.staves[0].staff);
 
   // Beats in a bar: the most common total of the full bars (first and last can be short).
   const totals = bars.map((b) => b.reduce((a, n) => a + (n.beats === 'bar' ? 0 : n.beats), 0));
@@ -864,10 +1069,25 @@ function toBars(pagesRead) {
   let beatsPerBar = [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0] || 4;
   bars.forEach((b) => b.forEach((n) => n.beats === 'bar' && (n.beats = beatsPerBar)));
   const off = bars.filter((b, i) => i > 0 && i < bars.length - 1 && Math.abs(b.reduce((a, n) => a + n.beats, 0) - beatsPerBar) > 1e-6).length;
-  return { bars, fifths, beatsPerBar, off };
+  return { bars, fifths: firstKey, beatsPerBar, off };
 }
 
 /* ---------------- Title and tempo from a PDF's text ---------------- */
+
+// Usual speeds for tempo words, checked in this order (so "Allegro moderato" isn't read as "Allegro").
+const TEMPO_WORDS = [
+  [/allegro moderato/i, 112],
+  [/allegretto/i, 108],
+  [/andantino/i, 92],
+  [/andante/i, 84],
+  [/adagio/i, 66],
+  [/largo|lento|grave/i, 54],
+  [/larghetto/i, 63],
+  [/moderato/i, 100],
+  [/vivace|vivo/i, 152],
+  [/presto/i, 160],
+  [/allegro/i, 132],
+];
 
 function titleAndTempo(page, scale, firstStaffTop) {
   const above = page.text.filter((t) => t.y * scale < firstStaffTop);
@@ -880,19 +1100,32 @@ function titleAndTempo(page, scale, firstStaffTop) {
       break;
     }
   }
-  return { title: title && title.size >= 12 ? title.str : null, tempo };
+  // No number: a tempo word such as "Allegro moderato" gives a usual speed for it.
+  let tempoWord = null;
+  if (!tempo) {
+    const words = above.map((t) => t.str).join(' ');
+    const hit = TEMPO_WORDS.find(([re]) => re.test(words));
+    if (hit) {
+      tempo = hit[1];
+      tempoWord = words.match(hit[0])[0];
+    }
+  }
+  return { title: title && title.size >= 12 ? title.str : null, tempo, tempoWord };
 }
 
 /* ---------------- Public ---------------- */
 
-// Reads a PDF or picture of sheet music. Returns { song, warnings } like importScoreFile,
-// or throws an Error whose message can be shown to the user.
+// Reads a PDF or picture of sheet music. Returns { song, warnings, parts } like importScoreFile,
+// or throws an Error whose message can be shown to the user. When the file holds more than one
+// piece or movement (each starting on a line with a time signature), `parts` lists them all as
+// { label, song, warnings }, and `song` is the first.
 export async function readSheetMusic(file, fallbackTitle) {
   const src = await pageSources(file);
   try {
     const read = [];
     let title = null;
     let tempo = null;
+    let tempoWord = null;
     for (const [i, page] of src.pages.entries()) {
       // First look at a moderate size to measure the staff, then read at a size where staff lines
       // are about TARGET_SPACE pixels apart.
@@ -910,27 +1143,42 @@ export async function readSheetMusic(file, fallbackTitle) {
       const texts = page.text.map((t) => ({ str: t.str, x: t.x * scale, y: t.y * scale }));
       const result = readPage(pix, texts);
       if (!result.staves.length) continue;
+      result.page = i + 1;
       read.push(result);
-      if (i === 0 && page.text.length) ({ title, tempo } = titleAndTempo(page, scale, result.staves[0].top));
+      if (i === 0 && page.text.length) ({ title, tempo, tempoWord } = titleAndTempo(page, scale, result.staves[0].top));
     }
     if (!read.length) {
       throw new Error("I couldn't find any music staffs (the five lines) on this page. Make sure the page is straight, sharp and well lit.");
     }
-    const { bars, fifths, beatsPerBar, off } = toBars(read);
-    const noteCount = bars.flat().filter((n) => n.midi != null).length;
-    if (noteCount < 2) throw new Error("I found the staff lines but couldn't make out the notes on them.");
 
-    const notes = ['These notes were read from a picture, so compare them with the sheet before saving: press ▶ Listen and fix anything that looks wrong.'];
-    if (off) notes.push(`${off} bar(s) don't add up to ${beatsPerBar} beats, so something in them may be misread.`);
-    const chords = read.reduce((a, r) => a + r.chords, 0);
-    if (chords) notes.push(`${chords} chord note(s) were left out: only the top note of each chord is kept.`);
-    const unread = read.reduce((a, r) => a + r.unreadAcc, 0);
-    if (unread) notes.push(`${unread} sharp/flat/natural sign(s) couldn't be read. Check the notes next to them.`);
-    if (!tempo) notes.push('No speed was found on the sheet, so it is set to 90. Change it if you need to.');
-    notes.push('Ties, slurs and repeat signs are not read: tied notes show as separate notes.');
-    return buildSong({ title: title || fallbackTitle, fifths, beatsPerBar, tempo: tempo || 90, bars, notes });
+    const parts = splitParts(read)
+      .map((part) => ({ part, ...toBars(part) }))
+      .filter(({ bars }) => bars.flat().filter((n) => n.midi != null).length >= 2);
+    if (!parts.length) throw new Error("I found the staff lines but couldn't make out the notes on them.");
+
+    const songs = parts.map(({ part, bars, fifths, beatsPerBar, off }, k) => {
+      const sum = (field) => part.staves.reduce((a, { staff }) => a + (staff[field] || 0), 0);
+      const pages = part.pages.length > 1 ? `pages ${part.pages[0]}–${part.pages[part.pages.length - 1]}` : `page ${part.pages[0]}`;
+      const label = parts.length > 1 ? `Part ${k + 1} (${pages})` : null;
+      const notes = ['These notes were read from a picture, so compare them with the sheet before saving: press ▶ Listen and fix anything that looks wrong.'];
+      if (parts.length > 1) {
+        notes.push(`This file has ${parts.length} pieces or movements (each starts on a line with a time signature). This is part ${k + 1}, from ${pages}.`);
+      }
+      if (off) notes.push(`${off} bar(s) don't add up to ${beatsPerBar} beats, so something in them may be misread.`);
+      if (sum('chords')) notes.push(`${sum('chords')} chord note(s) were left out: only the top note of each chord is kept.`);
+      if (sum('unreadAcc')) notes.push(`${sum('unreadAcc')} sharp/flat/natural sign(s) couldn't be read. Check the notes next to them.`);
+      if (sum('unreadRests')) notes.push(`${sum('unreadRests')} rest(s) of several bars were found, but not how many bars: each is counted as 1 bar.`);
+      // Only the first part's speed is printed above the music (later ones are mid-page).
+      const partTempo = k === 0 ? tempo : null;
+      if (partTempo && tempoWord) notes.push(`The speed is set to ${partTempo} for "${tempoWord}". Change it if your teacher plays it at another speed.`);
+      if (!partTempo) notes.push('No speed was found on the sheet, so it is set to 90. Change it if you need to.');
+      notes.push('Ties, slurs and repeat signs are not read: tied notes show as separate notes.');
+      const partTitle = title || fallbackTitle;
+      const built = buildSong({ title: parts.length > 1 ? `${partTitle} – part ${k + 1}` : partTitle, fifths, beatsPerBar, tempo: partTempo || 90, bars, notes });
+      return { label, ...built };
+    });
+    return { song: songs[0].song, warnings: songs[0].warnings, parts: songs.length > 1 ? songs : null };
   } finally {
     src.close();
   }
 }
-
