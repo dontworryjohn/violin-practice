@@ -1035,11 +1035,27 @@ function fillFormFrom(song, warnings, intro, source = null) {
   $('#songForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-// Reads the notes from a PDF or photo (js/omr.js), and fills the form if it worked.
+// Reads the notes from a PDF or photo (js/omr.js), and fills the form if it worked. A file with
+// several pieces or movements gets a button for each, to put that one in the form instead.
+let pictureParts = null;
 async function readPictureNotes(file, title, hash) {
   const { readSheetMusic } = await import('./omr.js');
-  const { song, warnings } = await readSheetMusic(file, title);
-  fillFormFrom(song, warnings, (count) => `Read ${count} notes from the sheet "${esc(title)}".`, hash);
+  const { song, warnings, parts } = await readSheetMusic(file, title);
+  pictureParts = parts ? { parts, title, hash } : null;
+  showPicturePart(song, warnings, 0);
+}
+function showPicturePart(song, warnings, index) {
+  const title = pictureParts?.title ?? song.title;
+  fillFormFrom(song, warnings, (count) => `Read ${count} notes from the sheet "${esc(title)}".`, pictureParts?.hash);
+  if (!pictureParts) return;
+  $('#uploadMsg').insertAdjacentHTML(
+    'beforeend',
+    `<div class="player-row upload-actions" role="group" aria-label="Parts of this file">` +
+      pictureParts.parts
+        .map((p, k) => `<button class="btn${k === index ? ' primary' : ''}" type="button" data-upload-act="part" data-part="${k}" aria-pressed="${k === index}">🎼 ${esc(p.label)}</button>`)
+        .join('') +
+      `</div>`,
+  );
 }
 
 // The same file (by content, whatever its name) was turned into a song before: offer that song
@@ -1062,6 +1078,10 @@ $('#uploadMsg').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-upload-act]');
   if (!btn) return;
   if (btn.dataset.uploadAct === 'open') openSong(btn.dataset.id);
+  if (btn.dataset.uploadAct === 'part' && pictureParts) {
+    const part = pictureParts.parts[Number(btn.dataset.part)];
+    if (part) showPicturePart(part.song, part.warnings, Number(btn.dataset.part));
+  }
   if (btn.dataset.uploadAct === 'again' && readAgain && !uploading) {
     const again = readAgain;
     readAgain = null;

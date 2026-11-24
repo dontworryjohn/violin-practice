@@ -232,6 +232,7 @@ main { padding: 16px; max-width: 1400px; margin: 0 auto; }
   padding: 30px 10px 10px;
   box-shadow: var(--shadow);
   border-right: 6px solid var(--ink);
+  max-width: 100%;
 }
 .bar.out { opacity: 0.35; }
 .bar.in-loop { box-shadow: 0 0 0 4px var(--accent), var(--shadow); }
@@ -242,7 +243,8 @@ main { padding: 16px; max-width: 1400px; margin: 0 auto; }
   font-size: 0.85rem;
   color: var(--muted);
 }
-.bar-notes { display: flex; gap: 6px; }
+/* A bar of many short notes wraps onto a second row rather than running off a narrow screen. */
+.bar-notes { display: flex; flex-wrap: wrap; gap: 6px; }
 .note {
   --c: var(--ink);
   --soft: #f2f0f6;
