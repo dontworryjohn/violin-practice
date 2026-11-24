@@ -509,6 +509,31 @@ function runsInColumn(img, w, x, ya, yb, minLen, minGap, lines = [], labels = nu
 /* ---------------- Shapes ---------------- */
 
 // Sharp, flat or natural from a component's vertical strokes. Returns 1, -1, 0 or null.
+// Whether shape c has a k×k square of solid ink somewhere.
+function hasSolid(img, w, c, k) {
+  for (let y = c.y0; y + k - 1 <= c.y1; y++) {
+    for (let x = c.x0; x + k - 1 <= c.x1; x++) {
+      let full = true;
+      for (let yy = y; full && yy < y + k; yy++) for (let xx = x; full && xx < x + k; xx++) full = !!img[yy * w + xx];
+      if (full) return true;
+    }
+  }
+  return false;
+}
+
+// The box around the ink inside a rectangle, or null if it is blank.
+function inkBox(img, w, h, x0, y0, x1, y1) {
+  let box = null;
+  for (let y = Math.max(0, y0); y <= Math.min(h - 1, y1); y++) {
+    for (let x = Math.max(0, x0); x <= Math.min(w - 1, x1); x++) {
+      if (!img[y * w + x]) continue;
+      if (!box) box = { x0: x, y0: y, x1: x, y1: y };
+      else (box.x0 = Math.min(box.x0, x)), (box.y0 = Math.min(box.y0, y)), (box.x1 = Math.max(box.x1, x)), (box.y1 = Math.max(box.y1, y));
+    }
+  }
+  return box;
+}
+
 function accidentalShape(sym, w, c, d) {
   const cw = c.x1 - c.x0 + 1;
   const ch = c.y1 - c.y0 + 1;
@@ -565,7 +590,72 @@ function readPage({ w, h, gray }, texts = []) {
   const rx = Math.max(2, Math.round(0.3 * d));
   const ry = Math.max(2, Math.round(0.27 * d));
   const core = erode(filled, w, h, rx, ry);
-  const cores = components(core, w, h).comps.filter((c) => c.x1 - c.x0 <= 1.5 * d && c.y1 - c.y0 <= 0.95 * d);
+  const cores = [];
+  for (const c of components(core, w, h).comps) {
+    if (c.x1 - c.x0 <= 1.5 * d) {
+      if (c.y1 - c.y0 <= 0.95 * d) cores.push(c);
+      continue;
+    }
+    // A note can be joined into one wide core with what stands next to it: a sharp, flat or natural
+    // in front of it (the middle of a sharp is solid once its hole is filled), or a bar line (the
+    // gap between bar line, head and staff lines gets filled like the inside of a hollow head).
+    // Keep a head-sized core at the note's end and measure it there only.
+    if (c.x1 - c.x0 > 2.2 * d || c.y1 - c.y0 > 1.6 * d) continue;
+    const hw = Math.max(1, Math.round(1.25 * d - 2 * rx));
+    const midY = Math.round((c.y0 + c.y1) / 2);
+    const stroke = (xa, xb, min, max) =>
+      range(Math.max(0, xa), Math.min(w - 1, xb)).some((x) => {
+        const { up, down } = verticalRun(sym, w, h, x, midY);
+        return up >= 0.6 * d && down >= 0.6 * d && up + down >= min && up + down <= max;
+      });
+    // A bar line runs from the top staff line to the bottom one (a stem stops at its head and beam).
+    const staff = staves.reduce((a, b) => (Math.abs(midY - (b.top + b.bottom) / 2) < Math.abs(midY - (a.top + a.bottom) / 2) ? b : a));
+    const barLine = (xa, xb) =>
+      range(Math.max(0, xa), Math.min(w - 1, xb)).some((x) => {
+        const { up, down } = verticalRun(sym, w, h, x, midY);
+        return Math.abs(midY - up - staff.top) <= 0.4 * d && Math.abs(midY + down - staff.bottom) <= 0.4 * d;
+      });
+    let x0;
+    let x1;
+    let touching;
+    // A sign (an upright stroke well above and below, shorter than a stem) or a bar line on the
+    // left: the head is the right-hand end. A bar line on the right: the left-hand end.
+    if (barLine(c.x0 - rx, c.x1 - hw)) [x0, x1, touching] = [c.x1 - hw, c.x1, 'bar'];
+    else if (stroke(c.x0 - rx, c.x1 - hw, 1.6 * d, 3.6 * d)) [x0, x1, touching] = [c.x1 - hw, c.x1, 'sign'];
+    else if (barLine(c.x0 + hw, c.x1 + rx)) [x0, x1, touching] = [c.x0, c.x0 + hw, 'bar'];
+    else continue;
+    // The head-sized band of rows there with the most ink (the sign's top or bottom can reach in).
+    const rows = [];
+    for (let y = c.y0; y <= c.y1; y++) {
+      let n = 0;
+      for (let x = x0; x <= x1; x++) n += core[y * w + x];
+      rows.push(n);
+    }
+    const band = Math.min(rows.length, Math.max(2, Math.round(d - 2 * ry)));
+    let best = -1;
+    let at = 0;
+    for (let i = 0; i + band <= rows.length; i++) {
+      const sum = rows.slice(i, i + band).reduce((a, b) => a + b, 0);
+      if (sum > best) (best = sum), (at = i);
+    }
+    if (best <= 0) continue;
+    // Its height: the solid block of rows across the head's own columns (away from the sign and the
+    // stem) around that band. A ledger line just above or below is a separate block.
+    // (Measured before filling holes: the gap between head, ledger line, sign and stem is one.)
+    const cols = x1 - x0 + 1;
+    const solid = (y) => {
+      if (y < 0 || y >= h) return false;
+      let n = 0;
+      for (let x = x0; x <= x1; x++) n += sym[y * w + x];
+      return n >= 0.7 * cols;
+    };
+    let top = Math.round(c.y0 + at + (band - 1) / 2);
+    let bottom = top;
+    while (solid(top - 1) && top - 1 > c.y0 - 1.2 * d) top--;
+    while (solid(bottom + 1) && bottom + 1 < c.y1 + 1.2 * d) bottom++;
+    const cy = Math.round((top + bottom) / 2);
+    cores.push({ ...c, x0, x1, y0: cy - Math.floor((band - 1) / 2), y1: cy - Math.floor((band - 1) / 2) + band - 1, touching });
+  }
   // How far ink reaches from (x, y) going in direction (dx, dy).
   const reach = (x, y, dx, dy, limit) => {
     let k = 0;
@@ -592,19 +682,33 @@ function readPage({ w, h, gray }, texts = []) {
     const right = mid3([-off, 0, off].map((o) => reach(cx0, cy0 + o, 1, 0, lim)));
     const up = mid3([-off, 0, off].map((o) => reach(cx0 + o, cy0, 0, -1, lim)));
     const down = mid3([-off, 0, off].map((o) => reach(cx0 + o, cy0, 0, 1, lim)));
-    const x0 = cx0 - left;
-    const x1 = cx0 + right;
-    const y0 = cy0 - up;
-    const y1 = cy0 + down;
-    let holes = 0;
-    let area = 0;
-    for (let y = c.y0; y <= c.y1; y++) for (let x = c.x0; x <= c.x1; x++) (area++, (holes += hole[y * w + x]));
+    // A head cut out of a wider shape: its ink runs on into the sign or bar line beside it, so
+    // keep the outline to the head's own size around the core.
+    const cap = c.touching ? (v, core) => Math.min(v, core) : (v) => v;
+    const x0 = cx0 - cap(left, cx0 - c.x0 + rx + 1);
+    const x1 = cx0 + cap(right, c.x1 - cx0 + rx + 1);
+    const y0 = cy0 - cap(up, cy0 - c.y0 + ry + 1);
+    const y1 = cy0 + cap(down, c.y1 - cy0 + ry + 1);
+    // Hollow: white (a filled hole) in the middle of the head, or both above and below its middle
+    // when a staff or ledger line runs through it. A flag curling back to touch its own head also
+    // encloses white, but only on one side of the head.
+    const holeShare = (ya, yb) => {
+      const hx = Math.max(1, Math.round(0.3 * d));
+      let n = 0;
+      let all = 0;
+      for (let y = ya; y <= yb; y++) for (let x = cx0 - hx; x <= cx0 + hx; x++) (all++, (n += hole[y * w + x] || 0));
+      return all ? n / all : 0;
+    };
+    const hy = Math.max(1, Math.round(0.15 * d));
+    const middle = holeShare(cy0 - hy, cy0 + hy);
+    const above = holeShare(cy0 - Math.round(0.4 * d), cy0 - hy - 1);
+    const below = holeShare(cy0 + hy + 1, cy0 + Math.round(0.4 * d));
     // Rectangles (whole and half rests) fill their box completely; noteheads are rounded.
     let ink = 0;
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) ink += filled[y * w + x];
     const boxFill = ink / ((y1 - y0 + 1) * (x1 - x0 + 1));
     const headLike = y1 - y0 + 1 >= 0.7 * d && y1 - y0 + 1 <= 1.5 * d && x1 - x0 + 1 >= 0.8 * d && x1 - x0 + 1 <= 2.2 * d;
-    heads.push({ x0, x1, y0, y1, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, width: x1 - x0 + 1, height: y1 - y0 + 1, hollow: holes / area > 0.2, boxFill, headLike });
+    heads.push({ x0, x1, y0, y1, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, width: x1 - x0 + 1, height: y1 - y0 + 1, hollow: middle > 0.2 || (above > 0.15 && below > 0.15), boxFill, headLike, touching: c.touching || null });
   }
 
   const typical = median(heads.filter((n) => n.headLike && n.width <= 1.6 * d).map((n) => n.width)) || 1.25 * d;
@@ -708,7 +812,7 @@ function readPage({ w, h, gray }, texts = []) {
       reject(n, 'no ledger line');
       continue;
     } // e.g. the little note in a tempo mark "♩ = 100" above the staff
-    if (n.boxFill > 0.93) {
+    if (n.boxFill > 0.93 && !n.touching) {
       reject(n, `boxFill ${n.boxFill.toFixed(2)}`);
       continue;
     } // a solid rectangle: a rest, handled below
@@ -841,15 +945,20 @@ function readPage({ w, h, gray }, texts = []) {
       // sharps and dots above or below it.)
       const around = n.cy < s.top - 0.5 * d || n.cy > s.bottom + 0.5 * d ? comps : free;
       const acc = around.find((c) => !c.used && c.x1 < n.x0 + 0.2 * d && c.x1 > n.x0 - 1.8 * d && c.y0 < n.cy && c.y1 > n.cy);
-      if (acc) {
-        const shape = accidentalShape(sym, w, acc, d);
-        if (shape !== null) {
-          n.acc = shape;
-          acc.used = 'acc';
-        } else if (acc.y1 - acc.y0 > 1.7 * d && acc.x1 - acc.x0 < 1.2 * d) {
-          unreadAcc++;
-          s.unreadAcc = (s.unreadAcc || 0) + 1;
-        }
+      const shape = acc ? accidentalShape(sym, w, acc, d) : null;
+      // A sign joined to its head, or to a slur over it, isn't a shape of its own: read the ink just
+      // left of the head.
+      const joinedTo = n.touching === 'sign' || (acc && acc.x1 - acc.x0 > 1.35 * d);
+      const box = shape === null && joinedTo ? inkBox(sym, w, h, Math.round(n.x0 - 1.3 * d), Math.round(n.cy - 1.6 * d), Math.round(n.x0) - 1, Math.round(n.cy + 1.6 * d)) : null;
+      const joined = box ? accidentalShape(sym, w, box, d) : null;
+      if (shape !== null) {
+        n.acc = shape;
+        acc.used = 'acc';
+      } else if (joined !== null) {
+        n.acc = joined;
+      } else if (acc && acc.y1 - acc.y0 > 1.7 * d && acc.x1 - acc.x0 < 1.2 * d) {
+        unreadAcc++;
+        s.unreadAcc = (s.unreadAcc || 0) + 1;
       }
       // Dot after the note makes it half as long again.
       const after = n.stem && n.stem.dir < 0 ? Math.max(n.x1, n.stem.x) : n.x1;
@@ -897,7 +1006,9 @@ function readPage({ w, h, gray }, texts = []) {
       if (fill > 0.75 && cw >= 0.7 * d && cw <= 1.9 * d && ch >= 0.25 * d && ch <= 0.8 * d) {
         if (Math.abs(c.y0 - s.lines[1].y) < 0.4 * d) beats = 'bar';
         else if (Math.abs(c.y1 - s.lines[2].y) < 0.4 * d) beats = 2;
-      } else if (cw >= 0.45 * d && cw <= 1.35 * d && accidentalShape(sym, w, c, d) === null) {
+      } else if (cw >= 0.45 * d && cw <= 1.35 * d && accidentalShape(sym, w, c, d) === null && hasSolid(sym, w, c, Math.max(2, Math.round(0.3 * d)))) {
+        // (Quarter and eighth rests have a solid blob or thick stroke; a piece of a steep slur cut
+        // up by the staff lines is a thin curve.)
         if (ch >= 2.1 * d && ch <= 3.6 * d) beats = 1;
         else if (ch >= 1.2 * d && ch < 2.1 * d) beats = 0.5;
       }
@@ -1046,8 +1157,14 @@ function toBars(part) {
     bar = [];
     barAcc = new Map();
   };
-  for (const { staff, events } of part.staves) {
-    if (staff.keyAcc.length || fifths === null) fifths = keyOf(staff);
+  // One line whose key differs from the lines on both sides (which agree) was misread: a real
+  // change of key carries on.
+  const keys = part.staves.map(({ staff }) => (staff.keyAcc.length ? keyOf(staff) : null));
+  keys.forEach((k, i) => {
+    if (k !== null && i > 0 && i < keys.length - 1 && keys[i - 1] !== null && keys[i - 1] === keys[i + 1] && k !== keys[i - 1]) keys[i] = keys[i - 1];
+  });
+  for (const [i, { staff, events }] of part.staves.entries()) {
+    if (keys[i] !== null || fifths === null) fifths = keys[i] ?? keyOf(staff);
     const keyAcc = keyMap(fifths);
     for (const e of [...events].sort((a, b) => a.x - b.x)) {
       if (e.kind === 'bar') close();
