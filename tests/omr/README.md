@@ -32,6 +32,13 @@ tests/omr/make_scans.sh
 node tests/omr/bench.cjs
 ```
 
+Then run the last step in Safari's engine too (every browser on an iPad uses it), after
+`npx playwright install webkit`. Both runs should give the same results for scans and photos:
+
+```bash
+BROWSER=webkit node tests/omr/bench.cjs
+```
+
 If `require('playwright')` isn't found, prefix the node commands with `NODE_PATH=$(npm root -g)`.
 
 Each line shows ✓ when every note, length and bar line matches, or ✗ with the differences

@@ -1,13 +1,16 @@
 // Step 5 of the sheet-reading tests (see README.md): reads every sheet in out/ with js/omr.js and
 // compares the notes, lengths and bar lines with out/<id>.truth.json.
 //   node tests/omr/bench.cjs [part-of-a-file-name]
-const { chromium } = require('playwright');
+// BROWSER=webkit runs it in Safari's engine (what every iPad browser uses) instead of Chromium.
+const playwright = require('playwright');
+const engine = process.env.BROWSER || 'chromium';
 const fs = require('fs');
 const DIR = require('path').join(__dirname, 'out');
 const only = process.argv[2];
 (async () => {
   const files = fs.readdirSync(DIR).filter((f) => /\.(pdf|png|jpg)$/.test(f) && (!only || f.includes(only))).sort();
-  const b = await chromium.launch();
+  const b = await playwright[engine].launch();
+  console.log(`Reading in ${engine}`);
   const p = await b.newPage();
   const errs = [];
   p.on('pageerror', (e) => errs.push(String(e)));

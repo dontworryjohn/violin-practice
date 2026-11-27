@@ -72,6 +72,22 @@ function grayOf(canvas) {
   return { w, h, gray };
 }
 
+// Song titles can be at most TITLE_MAX characters (the title box in the form). A long title is
+// shortened so that `suffix` (" – part 2") always fits whole: first an "IMSLP12345" library number
+// at the start goes, then the end is cut at a word.
+export const TITLE_MAX = 60;
+export function fitTitle(title, suffix = '') {
+  const room = TITLE_MAX - suffix.length;
+  let t = String(title).replace(/\s+/g, ' ').trim();
+  if (t.length > room) t = t.replace(/^IMSLP\d+[\s_-]*/i, '');
+  if (t.length > room) {
+    const cut = t.slice(0, room + 1);
+    const space = cut.lastIndexOf(' ');
+    t = space > room / 2 ? cut.slice(0, space) : t.slice(0, room);
+  }
+  return t.replace(/[\s–—,.:;-]+$/, '') + suffix;
+}
+
 function newCanvas(w, h) {
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(w));
@@ -82,22 +98,240 @@ function newCanvas(w, h) {
   return c;
 }
 
+// Pixels of `w` × `h` RGBA (`data`) scaled to `dw` × `dh` by the app itself, not by the browser:
+// each browser smooths a scaled picture in its own way, which changed what the reader saw (a faint
+// sharp lost in Safari, a bold "C" read as a note). Separable linear ("tent") filter, widened when
+// shrinking so every source pixel counts.
+function resampleRGBA(data, w, h, dw, dh) {
+  // For each output position: the first source pixel it reads, how many, and their weights.
+  const taps = (from, to) => {
+    const ratio = from / to;
+    const support = Math.max(1, ratio);
+    const span = Math.ceil(support) * 2 + 1;
+    const start = new Int32Array(to);
+    const count = new Int32Array(to);
+    const wt = new Float32Array(to * span);
+    for (let i = 0; i < to; i++) {
+      const centre = (i + 0.5) * ratio - 0.5;
+      const lo = Math.max(0, Math.ceil(centre - support));
+      const hi = Math.min(from - 1, Math.floor(centre + support), lo + span - 1);
+      let sum = 0;
+      for (let j = lo; j <= hi; j++) sum += Math.max(0, 1 - Math.abs(j - centre) / support);
+      start[i] = lo;
+      if (sum <= 0) {
+        start[i] = Math.min(from - 1, Math.max(0, Math.round(centre)));
+        count[i] = 1;
+        wt[i * span] = 1;
+        continue;
+      }
+      count[i] = hi - lo + 1;
+      for (let j = lo; j <= hi; j++) wt[i * span + j - lo] = Math.max(0, 1 - Math.abs(j - centre) / support) / sum;
+    }
+    return { start, count, wt, span };
+  };
+  const X = taps(w, dw);
+  const Y = taps(h, dh);
+  // Across each row first, then down each column.
+  const mid = new Float32Array(dw * h * 4);
+  for (let y = 0; y < h; y++) {
+    const row = y * w * 4;
+    let o = y * dw * 4;
+    for (let x = 0; x < dw; x++, o += 4) {
+      let r = 0, g = 0, b = 0, a = 0;
+      let s = row + X.start[x] * 4;
+      const n = X.count[x];
+      const base = x * X.span;
+      for (let k = 0; k < n; k++, s += 4) {
+        const v = X.wt[base + k];
+        r += data[s] * v;
+        g += data[s + 1] * v;
+        b += data[s + 2] * v;
+        a += data[s + 3] * v;
+      }
+      mid[o] = r;
+      mid[o + 1] = g;
+      mid[o + 2] = b;
+      mid[o + 3] = a;
+    }
+  }
+  const out = new Uint8ClampedArray(dw * dh * 4);
+  const acc = new Float32Array(dw * 4);
+  const stride = dw * 4;
+  for (let y = 0; y < dh; y++) {
+    acc.fill(0);
+    const n = Y.count[y];
+    const base = y * Y.span;
+    for (let k = 0; k < n; k++) {
+      const v = Y.wt[base + k];
+      const src = (Y.start[y] + k) * stride;
+      for (let i = 0; i < stride; i++) acc[i] += mid[src + i] * v;
+    }
+    out.set(acc, y * stride); // Uint8ClampedArray rounds and clamps
+  }
+  return out;
+}
+
+// Turns `data` (w × h RGBA) back by `angle` radians about its middle (undoing a tilt of `angle`),
+// filling the corners with white (bilinear, done here so it is the same in every browser).
+function unrotateRGBA(data, w, h, angle) {
+  const out = new Uint8ClampedArray(w * h * 4).fill(255);
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const cx = w / 2 - 0.5;
+  const cy = h / 2 - 0.5;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      // Where this output pixel comes from in the unturned picture.
+      const sx = cos * (x - cx) - sin * (y - cy) + cx;
+      const sy = sin * (x - cx) + cos * (y - cy) + cy;
+      const x0 = Math.floor(sx);
+      const y0 = Math.floor(sy);
+      if (x0 < 0 || y0 < 0 || x0 >= w - 1 || y0 >= h - 1) continue;
+      const fx = sx - x0;
+      const fy = sy - y0;
+      const o = (y * w + x) * 4;
+      const p = (y0 * w + x0) * 4;
+      const q = p + w * 4;
+      for (let c = 0; c < 4; c++) {
+        const top = data[p + c] + (data[p + 4 + c] - data[p + c]) * fx;
+        const bottom = data[q + c] + (data[q + 4 + c] - data[q + c]) * fx;
+        out[o + c] = Math.round(top + (bottom - top) * fy);
+      }
+    }
+  }
+  return out;
+}
+
+function canvasFrom(rgba, w, h) {
+  const c = newCanvas(w, h);
+  // Transparent pixels count as white paper (as in grayOf), so put the picture on white.
+  for (let i = 3; i < rgba.length; i += 4) {
+    const a = rgba[i] / 255;
+    if (a < 1) {
+      for (let k = i - 3; k < i; k++) rgba[k] = Math.round(rgba[k] * a + 255 * (1 - a));
+      rgba[i] = 255;
+    }
+  }
+  c.getContext('2d').putImageData(new ImageData(rgba, w, h), 0, 0);
+  return c;
+}
+
+// The RGBA pixels of a picture exactly as stored (no scaling), from a pdf.js image object or an
+// ImageBitmap.
+function imagePixels(img) {
+  const { width: w, height: h } = img;
+  if (img.bitmap || img instanceof ImageBitmap) {
+    const bitmap = img.bitmap || img;
+    const c = newCanvas(w, h);
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(bitmap, 0, 0);
+    return ctx.getImageData(0, 0, w, h).data;
+  }
+  const src = img.data;
+  const out = new Uint8ClampedArray(w * h * 4);
+  if (img.kind === 1) {
+    // 1 bit per pixel, rows padded to whole bytes, 1 = white.
+    const rowBytes = (w + 7) >> 3;
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++) {
+        const v = (src[y * rowBytes + (x >> 3)] >> (7 - (x & 7))) & 1 ? 255 : 0;
+        const o = (y * w + x) * 4;
+        out[o] = out[o + 1] = out[o + 2] = v;
+        out[o + 3] = 255;
+      }
+  } else if (img.kind === 2) {
+    for (let i = 0, j = 0; i < w * h; i++, j += 3) {
+      out[i * 4] = src[j];
+      out[i * 4 + 1] = src[j + 1];
+      out[i * 4 + 2] = src[j + 2];
+      out[i * 4 + 3] = 255;
+    }
+  } else {
+    out.set(src.subarray(0, w * h * 4));
+  }
+  return out;
+}
+
+// Operators that don't put anything on the page.
+const QUIET_OPS = [
+  'dependency', 'save', 'restore', 'transform', 'constructPath', 'clip', 'eoClip', 'endPath',
+  'setTextRenderingMode', 'beginMarkedContent', 'beginMarkedContentProps', 'endMarkedContent', 'setGState',
+];
+
+// A scanned page is one picture covering the page, with nothing else drawn. Returns the picture and
+// where it lies (`m`: the PDF's [a, b, c, d, e, f] for its unit square), or null for other pages.
+async function scannedImage(lib, page) {
+  const ops = await page.getOperatorList();
+  const quiet = new Set(QUIET_OPS.map((n) => lib.OPS[n]).filter((v) => v !== undefined));
+  const mul = (m, n) => [
+    m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1],
+    m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3],
+    m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5],
+  ];
+  let ctm = [1, 0, 0, 1, 0, 0];
+  const stack = [];
+  let found = null;
+  for (let i = 0; i < ops.fnArray.length; i++) {
+    const fn = ops.fnArray[i];
+    const args = ops.argsArray[i];
+    if (fn === lib.OPS.save) stack.push(ctm);
+    else if (fn === lib.OPS.restore) ctm = stack.pop() || ctm;
+    else if (fn === lib.OPS.transform) ctm = mul(ctm, args);
+    else if (fn === lib.OPS.paintImageXObject && !found) found = { id: args[0], m: ctm };
+    else if (!quiet.has(fn)) return null;
+  }
+  if (!found) return null;
+  const objs = found.id.startsWith('g_') ? page.commonObjs : page.objs;
+  const img = await new Promise((resolve) => objs.get(found.id, resolve));
+  if (!img || !img.width || !img.height) return null;
+  return { img, m: found.m };
+}
+
 // Pages of a PDF or a picture, each as a function that draws it at a given scale.
 async function pageSources(file) {
   const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
   if (isPdf) {
     const lib = await loadPdfJs();
-    const pdf = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), standardFontDataUrl: PDF_FONTS_URL }).promise;
+    // pdf.js's own JPEG decoder and plain pixel data instead of the browser's, so a scan gives the
+    // same pixels in every browser.
+    const pdf = await lib.getDocument({
+      data: new Uint8Array(await file.arrayBuffer()),
+      standardFontDataUrl: PDF_FONTS_URL,
+      isImageDecoderSupported: false,
+      isOffscreenCanvasSupported: false,
+    }).promise;
     const pages = [];
     for (let i = 1; i <= Math.min(pdf.numPages, 12); i++) {
       const page = await pdf.getPage(i);
       const base = page.getViewport({ scale: 1 });
       const text = await page.getTextContent().catch(() => ({ items: [] }));
+      const scan = await scannedImage(lib, page).catch(() => null);
       pages.push({
         width: base.width,
         async draw(scale) {
           const vp = page.getViewport({ scale });
           const c = newCanvas(vp.width, vp.height);
+          if (scan) {
+            // Where the picture lands on the canvas: an upright picture is scaled here, by the app.
+            const t = vp.transform;
+            const m = [
+              t[0] * scan.m[0] + t[2] * scan.m[1], t[1] * scan.m[0] + t[3] * scan.m[1],
+              t[0] * scan.m[2] + t[2] * scan.m[3], t[1] * scan.m[2] + t[3] * scan.m[3],
+              t[0] * scan.m[4] + t[2] * scan.m[5] + t[4], t[1] * scan.m[4] + t[3] * scan.m[5] + t[5],
+            ];
+            const upright = Math.abs(m[1]) < 1e-6 && Math.abs(m[2]) < 1e-6 && m[0] > 0 && m[3] < 0;
+            if (upright) {
+              const x0 = Math.round(m[4]);
+              const y0 = Math.round(m[5] + m[3]);
+              const dw = Math.max(1, Math.round(m[4] + m[0]) - x0);
+              const dh = Math.max(1, Math.round(m[5]) - y0);
+              const { img } = scan;
+              const px = canvasFrom(resampleRGBA(imagePixels(img), img.width, img.height, dw, dh), dw, dh);
+              c.getContext('2d').drawImage(px, x0, y0);
+              return c;
+            }
+          }
           await page.render({ canvasContext: c.getContext('2d'), viewport: vp, background: 'white' }).promise;
           return c;
         },
@@ -120,15 +354,13 @@ async function pageSources(file) {
       {
         width: bitmap.width,
         async draw(scale) {
-          const c = newCanvas(bitmap.width * scale, bitmap.height * scale);
-          const ctx = c.getContext('2d');
-          ctx.imageSmoothingQuality = 'high';
+          // Scaled and turned straight by the app, not the browser, so every browser reads the same.
+          const dw = Math.max(1, Math.round(bitmap.width * scale));
+          const dh = Math.max(1, Math.round(bitmap.height * scale));
+          let px = resampleRGBA(imagePixels(bitmap), bitmap.width, bitmap.height, dw, dh);
           // Turn a slightly tilted photo straight, so the staff lines are level.
-          ctx.translate(c.width / 2, c.height / 2);
-          ctx.rotate(-angle);
-          ctx.translate(-c.width / 2, -c.height / 2);
-          ctx.drawImage(bitmap, 0, 0, c.width, c.height);
-          return c;
+          if (Math.abs(angle) > 1e-4) px = unrotateRGBA(px, dw, dh, angle);
+          return canvasFrom(px, dw, dh);
         },
         text: [],
       },
@@ -141,9 +373,9 @@ async function pageSources(file) {
 // into the sharpest rows, which is when the staff lines are level.
 function skewAngle(bitmap) {
   const scale = Math.min(1, 900 / bitmap.width);
-  const c = newCanvas(bitmap.width * scale, bitmap.height * scale);
-  c.getContext('2d').drawImage(bitmap, 0, 0, c.width, c.height);
-  const pix = grayOf(c);
+  const w0 = Math.max(1, Math.round(bitmap.width * scale));
+  const h0 = Math.max(1, Math.round(bitmap.height * scale));
+  const pix = grayOf(canvasFrom(resampleRGBA(imagePixels(bitmap), bitmap.width, bitmap.height, w0, h0), w0, h0));
   const dark = binarize(pix);
   const { w, h } = pix;
   const pts = [];
@@ -1378,7 +1610,7 @@ export async function readSheetMusic(file, fallbackTitle) {
       if (!partTempo) notes.push('No speed was found on the sheet, so it is set to 90. Change it if you need to.');
       notes.push('Ties, slurs and repeat signs are not read: tied notes show as separate notes.');
       const partTitle = title || fallbackTitle;
-      const built = buildSong({ title: parts.length > 1 ? `${partTitle} – part ${k + 1}` : partTitle, fifths, beatsPerBar, tempo: partTempo || 90, bars, notes });
+      const built = buildSong({ title: fitTitle(partTitle, parts.length > 1 ? ` – part ${k + 1}` : ''), fifths, beatsPerBar, tempo: partTempo || 90, bars, notes });
       return { label, ...built };
     });
     return { song: songs[0].song, warnings: songs[0].warnings, parts: songs.length > 1 ? songs : null };

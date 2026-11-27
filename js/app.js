@@ -1134,9 +1134,11 @@ $('#uploadMsg').addEventListener('click', async (e) => {
 const readFailedHelp = `<div class="warn">💡 Clear, computer-made sheet music reads best. A MusicXML copy (Export → MusicXML in most notation apps) always works.</div>`;
 
 // Reads a PDF/photo's notes into the form; on failure explains, and says whether the sheet is saved.
-async function readPictureOrExplain(file, saved, extraNote, part = 0) {
+// `hash` is the file's fingerprint: songs made from it remember it even when the file itself
+// couldn't be stored (private browsing, storage full).
+async function readPictureOrExplain(file, saved, hash, extraNote, part = 0) {
   try {
-    await readPictureNotes(file, saved?.title || titleFromFileName(file.name), saved?.hash, part, extraNote);
+    await readPictureNotes(file, saved?.title || titleFromFileName(file.name), hash, part, extraNote);
   } catch (e) {
     uploadMessage(
       `<div class="err">⚠️ Couldn't read the notes: ${esc(e.message || 'something went wrong.')}</div>` +
@@ -1179,15 +1181,15 @@ async function handleUpload(file) {
         /* still try to read the notes */
       }
       const keptNote = !saved
-        ? ''
+        ? "📄 The original couldn't be kept on this device (private browsing, or storage is full), so it won't be in My sheet music."
         : alreadySaved
           ? `📄 This sheet is already saved as "<b>${esc(saved.title)}</b>" in 🎵 Songs → My sheet music, so it wasn't saved twice.`
           : '📄 The original is saved too: find it in 🎵 Songs under <b>My sheet music</b>.';
       if (madeSongs.length) {
-        offerSavedSong(madeSongs, keptNote, (part) => readPictureOrExplain(file, saved, keptNote, part));
+        offerSavedSong(madeSongs, keptNote, (part) => readPictureOrExplain(file, saved, hash, keptNote, part));
         return;
       }
-      await readPictureOrExplain(file, saved, keptNote);
+      await readPictureOrExplain(file, saved, hash, keptNote);
       return;
     }
 
@@ -1222,12 +1224,12 @@ async function readSavedPicture(id) {
     const saved = { id: sheet.id, title: sheet.title, type: sheet.type, added: sheet.added, hash };
     const madeSongs = customSongs.filter((x) => x.sourceHash === hash);
     if (madeSongs.length) {
-      offerSavedSong(madeSongs, '', (part) => readPictureOrExplain(file, saved, undefined, part));
+      offerSavedSong(madeSongs, '', (part) => readPictureOrExplain(file, saved, hash, undefined, part));
       return;
     }
     toast('⏳ Reading the notes…');
     showTab('add');
-    await readPictureOrExplain(file, saved);
+    await readPictureOrExplain(file, saved, hash);
     $('#uploadCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } finally {
     uploading = false;
