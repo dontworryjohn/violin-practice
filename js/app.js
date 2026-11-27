@@ -775,9 +775,11 @@ $('#previewBtn').addEventListener('click', () => {
 });
 
 let formSource = null; // fingerprint of the uploaded file the form was filled from, if any
+let formPart = null; // { index, count } when that file holds several pieces or movements
 function resetForm() {
   editingId = null;
   formSource = null;
+  formPart = null;
   $('#songForm').reset();
   $('#formTitle').textContent = 'Add my own song';
   $('#saveBtn').textContent = '💾 Save song';
@@ -803,7 +805,13 @@ $('#songForm').addEventListener('submit', (e) => {
     customSongs[i] = { ...customSongs[i], ...s };
   } else {
     // Remember which uploaded file a song came from, so uploading it again can offer the saved song.
-    customSongs.push({ id: `my-${Date.now().toString(36)}`, ...s, ...(formSource ? { sourceHash: formSource } : {}) });
+    // For a file with several parts, also which part (1, 2, …) of how many, so the others can be offered.
+    customSongs.push({
+      id: `my-${Date.now().toString(36)}`,
+      ...s,
+      ...(formSource ? { sourceHash: formSource } : {}),
+      ...(formSource && formPart ? { sourcePart: formPart.index + 1, sourceParts: formPart.count } : {}),
+    });
   }
   saveCustomSongs();
   toast(`Saved "${s.title}"! Find it in Songs 🎵`);
@@ -1037,17 +1045,21 @@ function fillFormFrom(song, warnings, intro, source = null) {
 
 // Reads the notes from a PDF or photo (js/omr.js), and fills the form if it worked. A file with
 // several pieces or movements gets a button for each, to put that one in the form instead.
+// `part` (0, 1, …) picks which one goes in the form first.
 let pictureParts = null;
-async function readPictureNotes(file, title, hash) {
+async function readPictureNotes(file, title, hash, part = 0) {
   const { readSheetMusic } = await import('./omr.js');
   const { song, warnings, parts } = await readSheetMusic(file, title);
   pictureParts = parts ? { parts, title, hash } : null;
-  showPicturePart(song, warnings, 0);
+  const index = parts && parts[part] ? part : 0;
+  if (parts) showPicturePart(parts[index].song, parts[index].warnings, index);
+  else showPicturePart(song, warnings, 0);
 }
 function showPicturePart(song, warnings, index) {
   const title = pictureParts?.title ?? song.title;
   fillFormFrom(song, warnings, (count) => `Read ${count} notes from the sheet "${esc(title)}".`, pictureParts?.hash);
   if (!pictureParts) return;
+  formPart = { index, count: pictureParts.parts.length };
   $('#uploadMsg').insertAdjacentHTML(
     'beforeend',
     `<div class="player-row upload-actions" role="group" aria-label="Parts of this file">` +
@@ -1058,22 +1070,43 @@ function showPicturePart(song, warnings, index) {
   );
 }
 
-// The same file (by content, whatever its name) was turned into a song before: offer that song
-// instead of reading it again. `again` reads it anyway.
+// The same file (by content, whatever its name) was turned into songs before: offer those songs
+// instead of reading it again. `again(part)` reads it anyway, putting that part (0, 1, …) in the
+// form. A file with several parts also gets a button for each part not saved yet.
 let readAgain = null;
-function offerSavedSong(song, note, again) {
+function offerSavedSong(songs, note, again) {
   showTab('add');
   readAgain = again;
+  const count = Math.max(0, ...songs.map((s) => s.sourceParts || 0));
+  const saved = new Set(songs.map((s) => s.sourcePart));
+  const missing = [];
+  for (let k = 1; k <= count; k++) if (!saved.has(k)) missing.push(k);
+  const ordered = [...songs].sort((a, b) => (a.sourcePart || 0) - (b.sourcePart || 0));
+  const name = (s) => `${esc(s.emoji || '🎵')} ${esc(s.title)}`;
+  const intro =
+    songs.length === 1
+      ? `✅ You already made a song from this file: <b>${name(songs[0])}</b>.`
+      : `✅ You already made ${songs.length} songs from this file.`;
+  const left = missing.length
+    ? `<div class="warn">🎼 This file has ${count} parts. Not saved yet: part ${missing.join(', ')}.</div>`
+    : '';
   uploadMessage(
-    `<div class="ok">✅ You already made a song from this file: <b>${esc(song.emoji || '🎵')} ${esc(song.title)}</b>.</div>` +
+    `<div class="ok">${intro}</div>` +
+      left +
       (note ? `<div class="warn">${note}</div>` : '') +
-      `<div class="player-row upload-actions">
-        <button class="btn primary" type="button" data-upload-act="open" data-id="${esc(song.id)}">▶ Open it</button>
-        <button class="btn" type="button" data-upload-act="again">🎼 Read the notes again</button>
-      </div>`,
+      `<div class="player-row upload-actions">` +
+      ordered
+        .map((s, i) => `<button class="btn${i === 0 && !missing.length ? ' primary' : ''}" type="button" data-upload-act="open" data-id="${esc(s.id)}">▶ ${songs.length === 1 ? 'Open it' : s.sourcePart ? `Open part ${s.sourcePart}` : `Open ${name(s)}`}</button>`)
+        .join('') +
+      missing
+        .map((k, i) => `<button class="btn${i === 0 ? ' primary' : ''}" type="button" data-upload-act="again" data-part="${k - 1}">🎼 Read part ${k}</button>`)
+        .join('') +
+      (missing.length ? '' : `<button class="btn" type="button" data-upload-act="again">🎼 Read the notes again</button>`) +
+      `</div>`,
   );
   $('#uploadCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+
 $('#uploadMsg').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-upload-act]');
   if (!btn) return;
@@ -1088,7 +1121,7 @@ $('#uploadMsg').addEventListener('click', async (e) => {
     uploading = true;
     uploadMessage('<div>⏳ Reading the music…</div>');
     try {
-      await again();
+      await again(Number(btn.dataset.part) || 0);
     } finally {
       uploading = false;
     }
@@ -1098,9 +1131,9 @@ $('#uploadMsg').addEventListener('click', async (e) => {
 const readFailedHelp = `<div class="warn">💡 Clear, computer-made sheet music reads best. A MusicXML copy (Export → MusicXML in most notation apps) always works.</div>`;
 
 // Reads a PDF/photo's notes into the form; on failure explains, and says whether the sheet is saved.
-async function readPictureOrExplain(file, saved, extraNote) {
+async function readPictureOrExplain(file, saved, extraNote, part = 0) {
   try {
-    await readPictureNotes(file, saved?.title || titleFromFileName(file.name), saved?.hash);
+    await readPictureNotes(file, saved?.title || titleFromFileName(file.name), saved?.hash, part);
     if (extraNote) $('#uploadMsg').insertAdjacentHTML('beforeend', `<div class="warn">${extraNote}</div>`);
   } catch (e) {
     uploadMessage(
@@ -1127,7 +1160,7 @@ async function handleUpload(file) {
   try {
     // The same file can come back under another name: recognise it by its contents.
     const hash = await fingerprint(file);
-    const madeSong = customSongs.find((x) => x.sourceHash === hash);
+    const madeSongs = customSongs.filter((x) => x.sourceHash === hash);
 
     if (kind === 'picture') {
       // Keep one copy of the original to read along with.
@@ -1148,8 +1181,8 @@ async function handleUpload(file) {
         : alreadySaved
           ? `📄 This sheet is already saved as "<b>${esc(saved.title)}</b>" in 🎵 Songs → My sheet music, so it wasn't saved twice.`
           : '📄 The original is saved too: find it in 🎵 Songs under <b>My sheet music</b>.';
-      if (madeSong) {
-        offerSavedSong(madeSong, keptNote, () => readPictureOrExplain(file, saved, keptNote));
+      if (madeSongs.length) {
+        offerSavedSong(madeSongs, keptNote, (part) => readPictureOrExplain(file, saved, keptNote, part));
         return;
       }
       await readPictureOrExplain(file, saved, keptNote);
@@ -1164,8 +1197,8 @@ async function handleUpload(file) {
         uploadMessage(`<div class="err">⚠️ ${esc(e.message || "Couldn't read this file.")}</div>`);
       }
     };
-    if (madeSong) {
-      offerSavedSong(madeSong, '', importIt);
+    if (madeSongs.length) {
+      offerSavedSong(madeSongs, '', importIt);
       return;
     }
     await importIt();
@@ -1185,9 +1218,9 @@ async function readSavedPicture(id) {
     if (pictureShown) closePicture();
     const hash = sheet.hash || (await fingerprint(sheet.blob));
     const saved = { id: sheet.id, title: sheet.title, type: sheet.type, added: sheet.added, hash };
-    const madeSong = customSongs.find((x) => x.sourceHash === hash);
-    if (madeSong) {
-      offerSavedSong(madeSong, '', () => readPictureOrExplain(file, saved));
+    const madeSongs = customSongs.filter((x) => x.sourceHash === hash);
+    if (madeSongs.length) {
+      offerSavedSong(madeSongs, '', (part) => readPictureOrExplain(file, saved, undefined, part));
       return;
     }
     toast('⏳ Reading the notes…');
