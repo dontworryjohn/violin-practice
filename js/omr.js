@@ -25,10 +25,33 @@ const FLAT_ORDER = 'BEADGCF';
 
 /* ---------------- Getting pixels ---------------- */
 
+// Per-channel factors that turn the paper's colour (the bright end of each channel) into white.
+function paperColour(px) {
+  const hist = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
+  const step = Math.max(1, Math.floor(px.length / 4 / 200000)) * 4;
+  let n = 0;
+  for (let j = 0; j < px.length; j += step) {
+    if (px[j + 3] < 128) continue;
+    hist[0][px[j]]++;
+    hist[1][px[j + 1]]++;
+    hist[2][px[j + 2]]++;
+    n++;
+  }
+  if (!n) return [1, 1, 1];
+  return hist.map((hc) => {
+    // 90th percentile: paper covers most of a page of music.
+    let seen = 0;
+    let v = 255;
+    while (v > 0 && (seen += hc[v]) < 0.1 * n) v--;
+    return 255 / Math.max(v, 64);
+  });
+}
+
 function grayOf(canvas) {
   const { width: w, height: h } = canvas;
   const px = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
   const gray = new Uint8Array(w * h);
+  const paper = paperColour(px);
   for (let i = 0, j = 0; i < gray.length; i++, j += 4) {
     // Transparent counts as white paper.
     const a = px[j + 3] / 255;
@@ -36,9 +59,11 @@ function grayOf(canvas) {
     const g = px[j + 1];
     const b = px[j + 2];
     // Strongly coloured marks (a teacher's red or blue pen, a highlighter) aren't printed music:
-    // treat them as paper. Printed ink is black or grey, and dark navy stays ink.
-    const hi = Math.max(r, g, b);
-    if (hi - Math.min(r, g, b) > 70 && hi > 110) {
+    // treat them as paper. Printed ink is black or grey, and dark navy stays ink. Colour is judged
+    // against the paper's own tint, so a photo under warm or cool light doesn't lose its grey print.
+    const [nr, ng, nb] = [r * paper[0], g * paper[1], b * paper[2]];
+    const hi = Math.max(nr, ng, nb);
+    if (a > 0.5 && hi - Math.min(nr, ng, nb) > 70 && hi > 110) {
       gray[i] = 255;
       continue;
     }
@@ -1175,11 +1200,18 @@ function keyMap(fifths) {
 
 // Splits the staffs into pieces (movements, or separate pieces in one file): a new one starts at a
 // staff that opens with a time signature. (Mid-piece time changes are rarely at the start of a line.)
+// A time signature alone could be a misread note, so the line must also look like a fresh start:
+// the first staff on its page, indented like a piece's first line, or in a new key.
 function splitParts(pagesRead) {
   const parts = [];
+  let prevKey = null;
   for (const page of pagesRead) {
-    for (const staff of page.staves) {
-      if (!parts.length || staff.timeSig) parts.push({ staves: [], pages: [] });
+    const usualX0 = median(page.staves.map((s) => s.x0));
+    for (const [k, staff] of page.staves.entries()) {
+      const key = staff.keyAcc.length ? keyOf(staff) : prevKey;
+      const fresh = k === 0 || staff.x0 > usualX0 + 2 * page.d || (key !== null && prevKey !== null && key !== prevKey);
+      prevKey = key;
+      if (!parts.length || (staff.timeSig && fresh)) parts.push({ staves: [], pages: [] });
       const part = parts[parts.length - 1];
       part.staves.push({ staff, events: page.events.filter((e) => e.staff === staff) });
       if (!part.pages.includes(page.page)) part.pages.push(page.page);
@@ -1245,17 +1277,18 @@ function toBars(part) {
 
 // Usual speeds for tempo words, checked in this order (so "Allegro moderato" isn't read as "Allegro").
 const TEMPO_WORDS = [
-  [/allegro moderato/i, 112],
-  [/allegretto/i, 108],
-  [/andantino/i, 92],
-  [/andante/i, 84],
-  [/adagio/i, 66],
-  [/largo|lento|grave/i, 54],
-  [/larghetto/i, 63],
-  [/moderato/i, 100],
-  [/vivace|vivo/i, 152],
-  [/presto/i, 160],
-  [/allegro/i, 132],
+  // (Whole words only, so "Engraved by …" isn't read as Grave.)
+  [/\ballegro moderato\b/i, 112],
+  [/\ballegretto\b/i, 108],
+  [/\bandantino\b/i, 92],
+  [/\bandante\b/i, 84],
+  [/\badagio\b/i, 66],
+  [/\b(?:largo|lento|grave)\b/i, 54],
+  [/\blarghetto\b/i, 63],
+  [/\bmoderato\b/i, 100],
+  [/\b(?:vivace|vivo)\b/i, 152],
+  [/\bpresto\b/i, 160],
+  [/\ballegro\b/i, 132],
 ];
 
 function titleAndTempo(page, scale, firstStaffTop) {
@@ -1321,11 +1354,13 @@ export async function readSheetMusic(file, fallbackTitle) {
     }
 
     const parts = splitParts(read)
-      .map((part) => ({ part, ...toBars(part) }))
+      // (The speed printed above page 1 belongs to the part that starts there, even if that part
+      // is dropped below for having too few notes.)
+      .map((part, k) => ({ part, top: k === 0, ...toBars(part) }))
       .filter(({ bars }) => bars.flat().filter((n) => n.midi != null).length >= 2);
     if (!parts.length) throw new Error("I found the staff lines but couldn't make out the notes on them.");
 
-    const songs = parts.map(({ part, bars, fifths, beatsPerBar, off }, k) => {
+    const songs = parts.map(({ part, top, bars, fifths, beatsPerBar, off }, k) => {
       const sum = (field) => part.staves.reduce((a, { staff }) => a + (staff[field] || 0), 0);
       const pages = part.pages.length > 1 ? `pages ${part.pages[0]}–${part.pages[part.pages.length - 1]}` : `page ${part.pages[0]}`;
       const label = parts.length > 1 ? `Part ${k + 1} (${pages})` : null;
@@ -1338,7 +1373,7 @@ export async function readSheetMusic(file, fallbackTitle) {
       if (sum('unreadAcc')) notes.push(`${sum('unreadAcc')} sharp/flat/natural sign(s) couldn't be read. Check the notes next to them.`);
       if (sum('unreadRests')) notes.push(`${sum('unreadRests')} rest(s) of several bars were found, but not how many bars: each is counted as 1 bar.`);
       // Only the first part's speed is printed above the music (later ones are mid-page).
-      const partTempo = k === 0 ? tempo : null;
+      const partTempo = top ? tempo : null;
       if (partTempo && tempoWord) notes.push(`The speed is set to ${partTempo} for "${tempoWord}". Change it if your teacher plays it at another speed.`);
       if (!partTempo) notes.push('No speed was found on the sheet, so it is set to 90. Change it if you need to.');
       notes.push('Ties, slurs and repeat signs are not read: tied notes show as separate notes.');

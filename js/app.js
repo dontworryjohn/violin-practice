@@ -1046,28 +1046,31 @@ function fillFormFrom(song, warnings, intro, source = null) {
 // Reads the notes from a PDF or photo (js/omr.js), and fills the form if it worked. A file with
 // several pieces or movements gets a button for each, to put that one in the form instead.
 // `part` (0, 1, …) picks which one goes in the form first.
-let pictureParts = null;
-async function readPictureNotes(file, title, hash, part = 0) {
+// `pictureRead` keeps the sheet being read (title, fingerprint, a note to show under the result,
+// and its parts, just one for a single piece) so a part button can put another part in the form.
+let pictureRead = null;
+async function readPictureNotes(file, title, hash, part = 0, extraNote = '') {
   const { readSheetMusic } = await import('./omr.js');
   const { song, warnings, parts } = await readSheetMusic(file, title);
-  pictureParts = parts ? { parts, title, hash } : null;
-  const index = parts && parts[part] ? part : 0;
-  if (parts) showPicturePart(parts[index].song, parts[index].warnings, index);
-  else showPicturePart(song, warnings, 0);
+  pictureRead = { title, hash, extraNote, parts: parts || [{ song, warnings }] };
+  showPicturePart(parts && parts[part] ? part : 0);
 }
-function showPicturePart(song, warnings, index) {
-  const title = pictureParts?.title ?? song.title;
-  fillFormFrom(song, warnings, (count) => `Read ${count} notes from the sheet "${esc(title)}".`, pictureParts?.hash);
-  if (!pictureParts) return;
-  formPart = { index, count: pictureParts.parts.length };
-  $('#uploadMsg').insertAdjacentHTML(
-    'beforeend',
-    `<div class="player-row upload-actions" role="group" aria-label="Parts of this file">` +
-      pictureParts.parts
-        .map((p, k) => `<button class="btn${k === index ? ' primary' : ''}" type="button" data-upload-act="part" data-part="${k}" aria-pressed="${k === index}">🎼 ${esc(p.label)}</button>`)
-        .join('') +
-      `</div>`,
-  );
+function showPicturePart(index) {
+  const { title, hash, extraNote, parts } = pictureRead;
+  const { song, warnings } = parts[index];
+  fillFormFrom(song, warnings, (count) => `Read ${count} notes from the sheet "${esc(title)}".`, hash);
+  if (parts.length > 1) {
+    formPart = { index, count: parts.length };
+    $('#uploadMsg').insertAdjacentHTML(
+      'beforeend',
+      `<div class="player-row upload-actions" role="group" aria-label="Parts of this file">` +
+        parts
+          .map((p, k) => `<button class="btn${k === index ? ' primary' : ''}" type="button" data-upload-act="part" data-part="${k}" aria-pressed="${k === index}">🎼 ${esc(p.label)}</button>`)
+          .join('') +
+        `</div>`,
+    );
+  }
+  if (extraNote) $('#uploadMsg').insertAdjacentHTML('beforeend', `<div class="warn">${extraNote}</div>`);
 }
 
 // The same file (by content, whatever its name) was turned into songs before: offer those songs
@@ -1111,9 +1114,9 @@ $('#uploadMsg').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-upload-act]');
   if (!btn) return;
   if (btn.dataset.uploadAct === 'open') openSong(btn.dataset.id);
-  if (btn.dataset.uploadAct === 'part' && pictureParts) {
-    const part = pictureParts.parts[Number(btn.dataset.part)];
-    if (part) showPicturePart(part.song, part.warnings, Number(btn.dataset.part));
+  if (btn.dataset.uploadAct === 'part' && pictureRead) {
+    const k = Number(btn.dataset.part);
+    if (pictureRead.parts[k]) showPicturePart(k);
   }
   if (btn.dataset.uploadAct === 'again' && readAgain && !uploading) {
     const again = readAgain;
@@ -1133,8 +1136,7 @@ const readFailedHelp = `<div class="warn">💡 Clear, computer-made sheet music 
 // Reads a PDF/photo's notes into the form; on failure explains, and says whether the sheet is saved.
 async function readPictureOrExplain(file, saved, extraNote, part = 0) {
   try {
-    await readPictureNotes(file, saved?.title || titleFromFileName(file.name), saved?.hash, part);
-    if (extraNote) $('#uploadMsg').insertAdjacentHTML('beforeend', `<div class="warn">${extraNote}</div>`);
+    await readPictureNotes(file, saved?.title || titleFromFileName(file.name), saved?.hash, part, extraNote);
   } catch (e) {
     uploadMessage(
       `<div class="err">⚠️ Couldn't read the notes: ${esc(e.message || 'something went wrong.')}</div>` +
