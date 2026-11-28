@@ -216,17 +216,32 @@ function canvasFrom(rgba, w, h) {
   return c;
 }
 
+// Largest canvas side used to copy a picture's pixels. Safari on iPhone/iPad can't make a canvas
+// over about 16.7 megapixels (a 24 MP iPhone photo is bigger), so big pictures are copied in tiles.
+const TILE = 2048;
+
 // The RGBA pixels of a picture exactly as stored (no scaling), from a pdf.js image object or an
 // ImageBitmap.
 function imagePixels(img) {
   const { width: w, height: h } = img;
   if (img.bitmap || img instanceof ImageBitmap) {
     const bitmap = img.bitmap || img;
-    const c = newCanvas(w, h);
-    const ctx = c.getContext('2d');
-    ctx.clearRect(0, 0, w, h);
-    ctx.drawImage(bitmap, 0, 0);
-    return ctx.getImageData(0, 0, w, h).data;
+    const out = new Uint8ClampedArray(w * h * 4);
+    const c = newCanvas(Math.min(w, TILE), Math.min(h, TILE));
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = false;
+    for (let y = 0; y < h; y += TILE) {
+      for (let x = 0; x < w; x += TILE) {
+        const tw = Math.min(TILE, w - x);
+        const th = Math.min(TILE, h - y);
+        ctx.clearRect(0, 0, c.width, c.height);
+        // Copied 1:1 (no scaling), so the pixels are the same in every browser.
+        ctx.drawImage(bitmap, x, y, tw, th, 0, 0, tw, th);
+        const tile = ctx.getImageData(0, 0, tw, th).data;
+        for (let r = 0; r < th; r++) out.set(tile.subarray(r * tw * 4, (r + 1) * tw * 4), ((y + r) * w + x) * 4);
+      }
+    }
+    return out;
   }
   const src = img.data;
   const out = new Uint8ClampedArray(w * h * 4);
@@ -348,16 +363,20 @@ async function pageSources(file) {
   }
   const bitmap = await createImageBitmap(file).catch(() => null);
   if (!bitmap) throw new Error("This picture can't be opened in this browser. Try a JPG or PNG photo.");
-  const angle = skewAngle(bitmap);
+  // Copied once and reused: measuring the tilt and every reading size start from these pixels.
+  const pixels = imagePixels(bitmap);
+  const { width, height } = bitmap;
+  bitmap.close?.();
+  const angle = skewAngle(pixels, width, height);
   return {
     pages: [
       {
-        width: bitmap.width,
+        width,
         async draw(scale) {
           // Scaled and turned straight by the app, not the browser, so every browser reads the same.
-          const dw = Math.max(1, Math.round(bitmap.width * scale));
-          const dh = Math.max(1, Math.round(bitmap.height * scale));
-          let px = resampleRGBA(imagePixels(bitmap), bitmap.width, bitmap.height, dw, dh);
+          const dw = Math.max(1, Math.round(width * scale));
+          const dh = Math.max(1, Math.round(height * scale));
+          let px = resampleRGBA(pixels, width, height, dw, dh);
           // Turn a slightly tilted photo straight, so the staff lines are level.
           if (Math.abs(angle) > 1e-4) px = unrotateRGBA(px, dw, dh, angle);
           return canvasFrom(px, dw, dh);
@@ -365,17 +384,18 @@ async function pageSources(file) {
         text: [],
       },
     ],
-    close: () => bitmap.close?.(),
+    close: () => {},
   };
 }
 
 // How much a picture is tilted (radians, up to ±5°): the angle at which its dark pixels line up
 // into the sharpest rows, which is when the staff lines are level.
-function skewAngle(bitmap) {
-  const scale = Math.min(1, 900 / bitmap.width);
-  const w0 = Math.max(1, Math.round(bitmap.width * scale));
-  const h0 = Math.max(1, Math.round(bitmap.height * scale));
-  const pix = grayOf(canvasFrom(resampleRGBA(imagePixels(bitmap), bitmap.width, bitmap.height, w0, h0), w0, h0));
+// `pixels` is the picture's RGBA, `width` × `height`.
+function skewAngle(pixels, width, height) {
+  const scale = Math.min(1, 900 / width);
+  const w0 = Math.max(1, Math.round(width * scale));
+  const h0 = Math.max(1, Math.round(height * scale));
+  const pix = grayOf(canvasFrom(resampleRGBA(pixels, width, height, w0, h0), w0, h0));
   const dark = binarize(pix);
   const { w, h } = pix;
   const pts = [];
